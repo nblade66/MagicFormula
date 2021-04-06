@@ -7,35 +7,28 @@ import sqlite3 as sq
 import pandas as pd
 
 
-# TODO Rewrite to take a balance sheet dictionary object in as an argument
 def get_net_working_capital(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     # print(balance_dict)
     return balance_dict['totalCurrentAssets'] - balance_dict['totalCurrentLiabilities']
 
 
-# TODO Rewrite to take a balance sheet dictionary object in as an argument
 def get_fixed_assets(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     return balance_dict['netTangibleAssets'] - balance_dict['totalCurrentAssets'] + balance_dict['totalLiab']
 
 
-# TODO Rewrite to take an ebit dictionary object in as an argument
 def get_roc(ticker):
-    # TODO get ebit from income statement
     return get_ebit(ticker) / (get_net_working_capital(ticker) + get_fixed_assets(ticker))
 
 
-# TODO Rewrite to take a balance sheet and market cap dictionary object in as an argument
 def get_ev(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     total_debt = balance_dict['longTermDebt'] + balance_dict['totalCurrentLiabilities']
     return get_market_cap(ticker) + total_debt - balance_dict['cash']
 
 
-# TODO Rewrite to take an ebit dictionary object in as an argument
 def get_yield(ticker):
-    # TODO get ebit from income statement
     return get_ebit(ticker) / get_ev(ticker)
 
 
@@ -83,10 +76,20 @@ def get_mf_rankings(db, tickers):
     None
 
 
+def filter_tickers(cap):
+    ticker_temp = []
+    for i, ticker in enumerate(ticker_list):
+        if get_market_cap(ticker) >= cap:
+            ticker_temp.append(ticker)
+
+    return ticker_temp
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process refresh options')
     parser.add_argument('--refresh', '-r', action='store_true', dest='refresh', help='flag determines if we refresh the yahoo finance data')
-    parser.add_argument('--strip', '-s', action='store_true', dest='refresh_stocks', help='gets list of stocks from text files')
+    parser.add_argument('--tickers', '-t', action='store_true', dest='refresh_tickers', help='gets list of stocks from text files')
+    parser.add_argument('--update_market_caps', '-m', action='store_true', dest='refresh_market_caps', help='refreshes market cap info')
     args = parser.parse_args()
 
     start = time.time()
@@ -94,7 +97,7 @@ if __name__ == '__main__':
     # Save the most balance sheets that are fetched, so that I don't need to fetch every time. Have the option to
     # refresh the balance sheets.
 
-    if args.refresh_stocks:
+    if args.refresh_tickers:
         print("Stripping text files to get list of stocks...")
         fhr = open('nasdaqlisted.txt', 'r')
         lines = fhr.readlines()
@@ -108,16 +111,31 @@ if __name__ == '__main__':
         for line in lines:
             fields = line.split('|')
             ticker_list.append(fields[0])
-        pickle.dump(ticker_list, open("ticker_list.p", "wb"))
+        temp = {'ticker_list': ticker_list}
+        json.dump(temp, open("ticker_list.json", "w"))
     else:
         print("Loading ticker list...")
-        ticker_list = pickle.load(open("ticker_list.p", "rb"))
+        with open('ticker_list.json') as json_list:
+            ticker_list = json.load(json_list)['ticker_list']
 
     if args.refresh:
         # Probably don't have to save the YahooFinancials object, since I don't think it does any webscraping
         print("Retrieving ticker information from Yahoo Finance...")
         yahoo_financials = YahooFinancials(ticker_list)
 
+        pickle.dump(yahoo_financials, open("yh_finance.p", "wb"))
+    else:
+        print("Loading ticker information from disk...")
+        yahoo_financials = pickle.load(open("yh_finance.p", "rb"))
+
+    if not args.refresh and args.refresh_market_caps:
+        print("Retrieving market cap information from Yahoo Finance...")
+        market_cap = yahoo_financials.get_market_cap()
+        json.dump(market_cap, open('market_cap_info.json', 'w'))
+
+    # TODO scrape the data in batches, and save in batches. Allow the option to restart from a certain place in the list
+    #   of stocks.
+    if args.refresh:
         print("Retrieving annual balance sheets from Yahoo Finance...")
         balance_sheet = yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
 
@@ -127,16 +145,11 @@ if __name__ == '__main__':
         print("Retrieving market cap information from Yahoo Finance...")
         market_cap = yahoo_financials.get_market_cap()
 
-        pickle.dump(yahoo_financials, open("yh_finance.p", "wb"))
-
         # Use JSON to store balance sheets, income statements, and market cap
         json.dump(balance_sheet, open('annual_balance_sheet.json', 'w'))
         json.dump(income_statement, open('annual_income_statement.json', 'w'))
         json.dump(market_cap, open('market_cap_info.json', 'w'))
     else:
-        print("Loading ticker information from disk...")
-        yahoo_financials = pickle.load(open("yh_finance.p", "rb"))
-
         print("Loading annual balance sheets from json file...")
         with open('annual_balance_sheet.json') as json_file:
             balance_sheet = json.load(json_file)
@@ -148,7 +161,7 @@ if __name__ == '__main__':
             market_cap = json.load(json_file)
 
     update_db(ticker_list)
-    # TODO Test getting the most recent date from the annual income statement
+    ticker_list = filter_tickers(50000000)
 
     end = time.time()
 
