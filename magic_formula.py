@@ -1,48 +1,61 @@
 from yahoofinancials import YahooFinancials
 import pickle
+import json
 import argparse
 import time
 import sqlite3 as sq
 import pandas as pd
 
 
-def get_net_working_capital(yh_f, ticker):
-    balance_sheet = yh_f.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
+# TODO Rewrite to take a balance sheet dictionary object in as an argument
+def get_net_working_capital(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     # print(balance_dict)
     return balance_dict['totalCurrentAssets'] - balance_dict['totalCurrentLiabilities']
 
 
-def get_fixed_assets(yh_f, ticker):
-    balance_sheet = yh_f.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
+# TODO Rewrite to take a balance sheet dictionary object in as an argument
+def get_fixed_assets(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     return balance_dict['netTangibleAssets'] - balance_dict['totalCurrentAssets'] + balance_dict['totalLiab']
 
 
-def get_roc(yh_f, ticker):
-    return yh_f.get_ebit()[ticker] / (get_net_working_capital(yh_f, ticker) + get_fixed_assets(yh_f, ticker))
+# TODO Rewrite to take an ebit dictionary object in as an argument
+def get_roc(ticker):
+    # TODO get ebit from income statement
+    return get_ebit(ticker) / (get_net_working_capital(ticker) + get_fixed_assets(ticker))
 
 
-def get_ev(yh_f, ticker):
-    balance_sheet = yh_f.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
+# TODO Rewrite to take a balance sheet and market cap dictionary object in as an argument
+def get_ev(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     total_debt = balance_dict['longTermDebt'] + balance_dict['totalCurrentLiabilities']
-    return yh_f.get_market_cap()[ticker] + total_debt - balance_dict['cash']
+    return get_market_cap(ticker) + total_debt - balance_dict['cash']
 
 
-def get_yield(yh_f, ticker):
-    return yh_f.get_ebit()[ticker] / get_ev(yh_f, ticker)
+# TODO Rewrite to take an ebit dictionary object in as an argument
+def get_yield(ticker):
+    # TODO get ebit from income statement
+    return get_ebit(ticker) / get_ev(ticker)
+
+
+def get_ebit(ticker):
+    return list(income_statement[ticker][0].values())[0]['ebit']
+
+
+def get_market_cap(ticker):
+    return market_cap[ticker]
 
 
 def insert_data(conn, ticker_info):
-    sql = ''' INSERT INTO stock_info (ticker, roc, yield)
+    sql = ''' REPLACE INTO stock_info (ticker, roc, yield)
               VALUES(?,?,?) '''
     cur = conn.cursor()
     cur.execute(sql, ticker_info)
     conn.commit()
 
 
-def update_db(yh_f, tickers):
+def update_db(tickers):
     print("Updating database...")
     conn = sq.connect(r'stock_info.db')
     cursor = conn.cursor()
@@ -52,14 +65,15 @@ def update_db(yh_f, tickers):
     yield real NOT NULL
     );''')
     for ticker in tickers:
-        data = (ticker, get_roc(yh_f, ticker), get_yield(yh_f, ticker))
-        insert_data(conn, data)
+        try:
+            data = (ticker, get_roc(ticker), get_yield(ticker))
+            insert_data(conn, data)
+        except Exception as e:
+            print(f"Insert data error: {e}. Going to next ticker.")
     print(pd.read_sql_query("SELECT * FROM stock_info", conn))
     if conn:
         conn.close()
-    # TODO Fetches data of necessary fields for all stock tickers
     # TODO Puts data into a database and filters out any stocks with missing data
-    None
 
 
 def get_mf_rankings(db, tickers):
@@ -79,14 +93,6 @@ if __name__ == '__main__':
 
     # Save the most balance sheets that are fetched, so that I don't need to fetch every time. Have the option to
     # refresh the balance sheets.
-    stocks = ['AAPL', 'MVIS']
-    if args.refresh:
-        print("Retrieving ticker information from Yahoo Finance...")
-        yahoo_financials = YahooFinancials(stocks)
-        pickle.dump(yahoo_financials, open("yh_finance.p", "wb"))
-    else:
-        print("Loading ticker information from disk...")
-        yahoo_financials = pickle.load(open("yh_finance.p", "rb"))
 
     if args.refresh_stocks:
         print("Stripping text files to get list of stocks...")
@@ -107,14 +113,42 @@ if __name__ == '__main__':
         print("Loading ticker list...")
         ticker_list = pickle.load(open("ticker_list.p", "rb"))
 
-    for stock in stocks:
-        # print(f"Fixed Assets: {get_fixed_assets(yahoo_financials, stock)}")
-        # print(f"Working Capital: {get_net_working_capital(yahoo_financials, stock)}")
-        print(f"{stock}'s Return on Capital: {get_roc(yahoo_financials, stock)}")
-        print(f"{stock}'s Earnings Yield: {get_yield(yahoo_financials, stock)}")
+    if args.refresh:
+        # Probably don't have to save the YahooFinancials object, since I don't think it does any webscraping
+        print("Retrieving ticker information from Yahoo Finance...")
+        yahoo_financials = YahooFinancials(ticker_list)
 
-    update_db(yahoo_financials, stocks)
+        print("Retrieving annual balance sheets from Yahoo Finance...")
+        balance_sheet = yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
 
+        print("Retrieving annual income statement history from Yahoo Finance...")
+        income_statement = yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory']
+
+        print("Retrieving market cap information from Yahoo Finance...")
+        market_cap = yahoo_financials.get_market_cap()
+
+        pickle.dump(yahoo_financials, open("yh_finance.p", "wb"))
+
+        # Use JSON to store balance sheets, income statements, and market cap
+        json.dump(balance_sheet, open('annual_balance_sheet.json', 'w'))
+        json.dump(income_statement, open('annual_income_statement.json', 'w'))
+        json.dump(market_cap, open('market_cap_info.json', 'w'))
+    else:
+        print("Loading ticker information from disk...")
+        yahoo_financials = pickle.load(open("yh_finance.p", "rb"))
+
+        print("Loading annual balance sheets from json file...")
+        with open('annual_balance_sheet.json') as json_file:
+            balance_sheet = json.load(json_file)
+        print("Loading annual income statement history from json file...")
+        with open('annual_income_statement.json') as json_file:
+            income_statement = json.load(json_file)
+        print("Loading market cap information from json file...")
+        with open('market_cap_info.json') as json_file:
+            market_cap = json.load(json_file)
+
+    update_db(ticker_list)
+    # TODO Test getting the most recent date from the annual income statement
 
     end = time.time()
 
