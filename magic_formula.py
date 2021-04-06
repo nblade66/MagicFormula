@@ -2,6 +2,8 @@ from yahoofinancials import YahooFinancials
 import pickle
 import argparse
 import time
+import sqlite3 as sq
+import pandas as pd
 
 
 def get_net_working_capital(yh_f, ticker):
@@ -32,11 +34,38 @@ def get_yield(yh_f, ticker):
     return yh_f.get_ebit()[ticker] / get_ev(yh_f, ticker)
 
 
-def update_db(tickers):
+def insert_data(conn, ticker_info):
+    sql = ''' INSERT INTO stock_info (ticker, roc, yield)
+              VALUES(?,?,?) '''
+    cur = conn.cursor()
+    cur.execute(sql, ticker_info)
+    conn.commit()
+
+
+def update_db(yh_f, tickers):
+    print("Updating database...")
+    conn = sq.connect(r'stock_info.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS stock_info (
+    ticker text PRIMARY KEY,
+    roc real NOT NULL,
+    yield real NOT NULL
+    );''')
+    for ticker in tickers:
+        data = (ticker, get_roc(yh_f, ticker), get_yield(yh_f, ticker))
+        insert_data(conn, data)
+    print(pd.read_sql_query("SELECT * FROM stock_info", conn))
+    if conn:
+        conn.close()
+    # TODO Fetches data of necessary fields for all stock tickers
+    # TODO Puts data into a database and filters out any stocks with missing data
     None
 
 
-def get_mf_rankings(yh_f, tickers):
+def get_mf_rankings(db, tickers):
+    # TODO Filter out the stocks below a certain market cap
+    # TODO Generate the magic formula rankings based on Return on Capital and Earning Yield
+    # TODO Return a database that's sorted by rankings?
     None
 
 
@@ -48,18 +77,15 @@ if __name__ == '__main__':
 
     start = time.time()
 
-    test = YahooFinancials('XPEV')
-    print(test.get_stock_quote_type_data())
-
     # Save the most balance sheets that are fetched, so that I don't need to fetch every time. Have the option to
     # refresh the balance sheets.
-    stocks = ['MVIS']
+    stocks = ['AAPL', 'MVIS']
     if args.refresh:
-        print("Refreshing values...")
+        print("Retrieving ticker information from Yahoo Finance...")
         yahoo_financials = YahooFinancials(stocks)
         pickle.dump(yahoo_financials, open("yh_finance.p", "wb"))
     else:
-        print("Loading values...")
+        print("Loading ticker information from disk...")
         yahoo_financials = pickle.load(open("yh_finance.p", "rb"))
 
     if args.refresh_stocks:
@@ -87,8 +113,8 @@ if __name__ == '__main__':
         print(f"{stock}'s Return on Capital: {get_roc(yahoo_financials, stock)}")
         print(f"{stock}'s Earnings Yield: {get_yield(yahoo_financials, stock)}")
 
+    update_db(yahoo_financials, stocks)
 
-    # print(yahoo_financials.get_financial_stmts('annual', 'balance'))
 
     end = time.time()
 
