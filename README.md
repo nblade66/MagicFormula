@@ -1,6 +1,6 @@
 # MagicFormula
 
-A program to implement the Magic Formula from the book The Little Book that Still Beats the Market by Joel Greenblatt. The book is pretty short, and it's actually a really fun read, so go check it out if you want the exact details about his "Magic Formula". I know the list of stocks are already available on his website magicformulainvesting.com, but the top stocks are listed in alphabetical order. I wanted to know the exact rankings, so here we are.
+A program to implement the Magic Formula from the book The Little Book that Still Beats the Market by Joel Greenblatt. The book is pretty short, and it's actually a really fun read, so go check it out if you want the exact details about his "Magic Formula". I know the list of stocks are already available on his website https://magicformulainvesting.com, but the top stocks are listed in alphabetical order. I wanted to know the exact rankings, so here we are.
 
 Stock data is retrieved using the YahooFinance API (unofficial, so it uses webscraping).
 
@@ -8,7 +8,7 @@ Lists of stocks were found on http://ftp.nasdaqtrader.com/, in Symbol Directory.
 
 It then calculates Return on Capital and Earnings Yield, as specified by Joel Greenblatt. Some of the exact metrics he used were not available on Yahoo Finance, so I had to do some Googling to figure out what the equivalent metrics were (for example, I found that Short Term Debt is also known as Current Liabilities). If things are wrong, let me know.
 Stocks below a certain market cap are then filtered out (as he suggests to do), and ranked based on Return on Capital and Earnings Yield.
-(I haven't implemented this part yet, but after I do, I'll cross-check against his site magicformulainvesting.com)
+(I haven't implemented this part yet, but after I do, I'll cross-check against his site https://magicformulainvesting.com)
 
 There are 4 flags to be aware of:
 * -r    Retrieves the data (balance_sheet, income_statement, market_cap) of all the stocks listed in the "ticker_list" list. This will take a really long time, since it uses web scraping. As such, I implement retrieval in batches, which are then saved to the JSON file. If no flag, then data will load from the JSON file
