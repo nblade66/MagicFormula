@@ -11,10 +11,10 @@ Stocks below a certain market cap are then filtered out (as he suggests to do), 
 (I haven't implemented this part yet, but after I do, I'll cross-check against his site magicformulainvesting.com)
 
 There are 4 flags to be aware of:
--r    Retrieves the data (balance_sheet, income_statement, market_cap) of all the stocks listed in the "ticker_list" list. This will take a really long time, since it uses web scraping. As such, I implement retrieval in batches, which are then saved to the JSON file. If no flag, then data will load from the JSON file
--t    Retrieves the ticker_list using the files "nasdaqlisted.txt" and "otherlisted.txt"; if flag isn't used, ticker_list will load from the JSON file
--c    Continues retrieving the data of the stocks that aren't in the JSON files, but are in the ticker_list. Generally used if for some reason retrieval was interrupted.
--m    Updates only the market caps, and as such is faster than using the '-r' flag. This is an option because market caps update far more often than balance sheets or income statements.
+* -r    Retrieves the data (balance_sheet, income_statement, market_cap) of all the stocks listed in the "ticker_list" list. This will take a really long time, since it uses web scraping. As such, I implement retrieval in batches, which are then saved to the JSON file. If no flag, then data will load from the JSON file
+* -t    Retrieves the ticker_list using the files "nasdaqlisted.txt" and "otherlisted.txt"; if flag isn't used, ticker_list will load from the JSON file
+* -c    Continues retrieving the data of the stocks that aren't in the JSON files, but are in the ticker_list. Generally used if for some reason retrieval was interrupted.
+* -m    Updates only the market caps, and as such is faster than using the '-r' flag. This is an option because market caps update far more often than balance sheets or income statements.
 
 Things to be aware of:
 * The ticker_list used to debug can just be a Python list, but when actually running the code, make sure to use the -t flag to get a new list of tickers.
