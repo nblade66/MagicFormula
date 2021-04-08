@@ -142,7 +142,7 @@ def filter_tickers(cap):
 
 
 # TODO Add file_name to the argument for the purposes of multi_processing
-def retrieve_data(batch_sz, tickers, metric, file_name):
+def retrieve_data(batch_sz, tickers, metric, file_name, balance, income, cap):
     if batch_sz == 0:
         batch_sz = len(tickers)
     batches = len(tickers) // batch_sz
@@ -157,24 +157,24 @@ def retrieve_data(batch_sz, tickers, metric, file_name):
 
         if metric == "balance":
             print(f"Retrieving annual balance sheets from Yahoo Finance...")
-            balance_sheet.update(yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory'])
+            balance.update(yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory'])
 
             print(f"Saving batch {i + 1} to JSON file...")
-            json.dump(balance_sheet, open(file_name + '.json', 'w'))
+            json.dump(balance, open(file_name + '.json', 'w'))
 
         elif metric == "income":
             print(f"Retrieving annual income statement history from Yahoo Finance...")
-            income_statement.update(yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory'])
+            income.update(yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory'])
 
             print(f"Saving batch {i + 1} to JSON file...")
-            json.dump(income_statement, open(file_name + '.json', 'w'))
+            json.dump(income, open(file_name + '.json', 'w'))
 
         elif metric == "cap":
             print(f"Retrieving market cap information from Yahoo Finance...")
-            market_cap.update(yahoo_financials.get_market_cap())
+            cap.update(yahoo_financials.get_market_cap())
 
             print(f"Saving batch {i + 1} to JSON file...")
-            json.dump(market_cap, open(file_name + '.json', 'w'))
+            json.dump(cap, open(file_name + '.json', 'w'))
 
         else:
             print("Metric entered is not recognized.")
@@ -221,9 +221,16 @@ def clean_tickers():
 
 
 def create_process(batch_sz, p_tickers, p_id):
-    retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}")
-    retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}")
-    retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}")
+    # create empty dictionaries for the process, since the process does not have access to the global variables
+    balance_sheet = {}
+    income_statement = {}
+    market_cap = {}
+    fn_balance = 'annual_balance_sheet'
+    fn_income = 'annual_income_statement'
+    fn_cap = 'market_cap_info'
+    retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet, income_statement, market_cap)
+    retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", balance_sheet, income_statement, market_cap)
+    retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", balance_sheet, income_statement, market_cap)
 
 
 # Takes the various JSON files from processes and updates the dictionaries: balance_sheet, income_statement, market_cap
@@ -329,9 +336,9 @@ if __name__ == '__main__':
         balance_sheet = {}
         income_statement = {}
         market_cap = {}
-        retrieve_data(batch_size, ticker_list, "balance", fn_balance)
-        retrieve_data(batch_size, ticker_list, "income", fn_income)
-        retrieve_data(batch_size, ticker_list, "cap", fn_cap)
+        retrieve_data(batch_size, ticker_list, "balance", fn_balance, balance_sheet, income_statement, market_cap)
+        retrieve_data(batch_size, ticker_list, "income", fn_income, balance_sheet, income_statement, market_cap)
+        retrieve_data(batch_size, ticker_list, "cap", fn_cap, balance_sheet, income_statement, market_cap)
         clean_tickers()
     else:
         print("Loading annual balance sheets from json file...")
