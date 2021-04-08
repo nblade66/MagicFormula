@@ -102,6 +102,7 @@ def insert_data(conn, ticker_info):
 
 
 # TODO Add a column for the date of the latest report? That way I can filter by date
+# TODO Have a command line argument option to drop the table and refresh (instead of always dropping the table)
 def update_db(tickers):
     print("Updating database...")
     conn = sq.connect(r'stock_info.db')
@@ -141,7 +142,6 @@ def filter_tickers(cap):
     return ticker_temp
 
 
-# TODO Add file_name to the argument for the purposes of multi_processing
 def retrieve_data(batch_sz, tickers, metric, file_name, balance, income, cap):
     if batch_sz == 0:
         batch_sz = len(tickers)
@@ -222,6 +222,7 @@ def clean_tickers():
 
 def create_process(batch_sz, p_tickers, p_id):
     # create empty dictionaries for the process, since the process does not have access to the global variables
+    # These will be accessed through their saved JSON files.
     balance_sheet = {}
     income_statement = {}
     market_cap = {}
@@ -286,6 +287,7 @@ if __name__ == '__main__':
     fn_balance = 'annual_balance_sheet'
     fn_income = 'annual_income_statement'
     fn_cap = 'market_cap_info'
+    batch_size = 10
 
     start = time.time()
 
@@ -311,10 +313,7 @@ if __name__ == '__main__':
         with open('ticker_list.json') as json_list:
             ticker_list = json.load(json_list)
 
-    print("Retrieving ticker information from Yahoo Finance...")
-    yahoo_financials = YahooFinancials(ticker_list)
-
-    batch_size = 10
+    # ticker_list = ticker_list[0:18]   # For debugging purposes, when we want a smaller ticker_list to work with
 
     if not args.refresh and args.refresh_market_caps:
         with open('market_cap_info.json') as json_list:
@@ -327,12 +326,11 @@ if __name__ == '__main__':
         market_cap = yahoo_financials.get_market_cap()
         json.dump(market_cap, open('market_cap_info.json', 'w'))
 
-    # (for debugging) ticker_list = ['FB', 'UAL', 'UAA', 'UAV'] # If not debugging, make sure to use -t flag
-
     # If refreshing the ticker information (balance sheets, income statements, and market caps), scrape the data in
     # batches, and save in batches.
     # TODO Implement multiprocess webscraping
     if args.refresh and not args.continue_refresh:
+        print("Refreshing all stock data...")
         balance_sheet = {}
         income_statement = {}
         market_cap = {}
@@ -341,6 +339,7 @@ if __name__ == '__main__':
         retrieve_data(batch_size, ticker_list, "cap", fn_cap, balance_sheet, income_statement, market_cap)
         clean_tickers()
     else:
+        print("Loading all stock data from json files...")
         print("Loading annual balance sheets from json file...")
         with open(fn_balance + '.json') as json_file:
             balance_sheet = json.load(json_file)
@@ -351,11 +350,10 @@ if __name__ == '__main__':
         with open(fn_cap + '.json') as json_file:
             market_cap = json.load(json_file)
 
-    ticker_list = ticker_list[0:60]
     # Retrieves the data for tickers that have not been retrieved yet (i.e. not in the dictionary yet)
     # Note: balance_sheet, income_statement, and market_cap are already loaded in the args.refresh if-else block
-    # TODO Implement multiprocess webscraping
     if args.continue_refresh:
+        print("Continuing retrieval of stock data that is not already in json files...")
         # Step 1: Consolidate any JSON sub_files into the dictionaries for the respective metric
         # Iterate through all sub_lists of each process
         print("Consolidating JSON files and removing sub_files...")
@@ -400,7 +398,7 @@ if __name__ == '__main__':
         for i in range(args.n_processes):
             p_cap_list.append(cap_sublist[i * p_size: min((i+1) * p_size, len(cap_sublist))])
 
-        # TODO Step 4: Retrieve the data; each list in the process lists gets its own process
+        # Step 4: Retrieve the data; each list in the process lists gets its own process
         p_ticker_list = list(zip(p_balance_list, p_income_list, p_cap_list))
 
         print("Creating processes...")
@@ -417,8 +415,8 @@ if __name__ == '__main__':
         for j in jobs:
             j.join()
 
-        # TODO Step 6: Consolidate the dictionaries for each process into a main dictionary for each metric
-        #   This is completed through the JSON files that were saved. Then remove the process's JSON files.
+        # Consolidate the dictionaries for each process into a main dictionary for each metric
+        # This is completed through the JSON files that were saved. Then remove the process's JSON files.
         consolidate_json(remove=True)
 
         # Step 7: Clean the tickers; this also saves the dictionaries into the main JSON file
