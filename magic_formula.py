@@ -94,8 +94,8 @@ def get_market_cap(ticker):
 
 
 def insert_data(conn, ticker_info):
-    sql = ''' REPLACE INTO stock_info (ticker, roc, yield)
-              VALUES(?,?,?) '''
+    sql = ''' REPLACE INTO stock_info (ticker, roc, yield, market_cap)
+              VALUES(?,?,?,?) '''
     cur = conn.cursor()
     cur.execute(sql, ticker_info)
     conn.commit()
@@ -181,7 +181,7 @@ def retrieve_data(batch_sz, tickers, metric, file_name, balance, income, cap):
 
         end_loop = time.time()
 
-        print(f"Time elapsed for batch {i + 1}: {end_loop - start_loop}")
+        print(f"Time elapsed for batch {i + 1}: {end_loop - start_loop}, metric: {metric}")
         print()
 
 
@@ -236,7 +236,7 @@ def create_process(batch_sz, p_tickers, p_id):
 # Takes the various JSON files from processes and updates the dictionaries: balance_sheet, income_statement, market_cap
 # Also removes the JSON files after consolidating
 def consolidate_json(remove=False):
-    process_id = 1
+    process_id = 0
     while os.path.isfile(f"{fn_balance}_{process_id}.json"):
         with open(f'{fn_balance}_{process_id}.json') as json_file:
             temp_dict = json.load(json_file)
@@ -248,7 +248,7 @@ def consolidate_json(remove=False):
                 print(f"Error deleting JSON file {fn_balance}_{process_id}.json")
         process_id += 1
 
-    process_id = 1
+    process_id = 0
     while os.path.isfile(f"{fn_income}_{process_id}.json"):
         with open(f'{fn_income}_{process_id}.json') as json_file:
             temp_dict = json.load(json_file)
@@ -260,7 +260,7 @@ def consolidate_json(remove=False):
                 print(f"Error deleting JSON file {fn_income}_{process_id}.json")
         process_id += 1
 
-    process_id = 1
+    process_id = 0
     while os.path.isfile(f"{fn_cap}_{process_id}.json"):
         with open(f'{fn_cap}_{process_id}.json') as json_file:
             temp_dict = json.load(json_file)
@@ -351,12 +351,14 @@ if __name__ == '__main__':
         with open(fn_cap + '.json') as json_file:
             market_cap = json.load(json_file)
 
+    ticker_list = ticker_list[0:60]
     # Retrieves the data for tickers that have not been retrieved yet (i.e. not in the dictionary yet)
     # Note: balance_sheet, income_statement, and market_cap are already loaded in the args.refresh if-else block
     # TODO Implement multiprocess webscraping
     if args.continue_refresh:
         # Step 1: Consolidate any JSON sub_files into the dictionaries for the respective metric
         # Iterate through all sub_lists of each process
+        print("Consolidating JSON files and removing sub_files...")
         consolidate_json()
 
         # Step 2: Find the tickers in the ticker_list whose data has not been retrieved yet
