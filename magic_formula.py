@@ -119,30 +119,53 @@ def update_db(tickers):
             data = (ticker, get_roc(ticker), get_yield(ticker), get_market_cap(ticker))
             insert_data(conn, data)
         except Exception as e:
-            print(f"Insert data error: {e}. Going to next ticker.")
+            print(f"Insert data error for ticker {ticker}: {e}. Going to next ticker.")
+    if conn:
+        conn.close()
+
+
+def rank_stocks(db):
+    # TODO Filter out the stocks below a certain market cap
+    # TODO Generate the magic formula rankings based on Return on Capital and Earning Yield
+    print("Ranking stocks based on Magic Formula...")
+    conn = sq.connect(rf'{db}')
+    cursor = conn.cursor()
+    pd.read_sql_query('''
+    SELECT * FROM (
+        SELECT *, roc_rank + yield_rank AS magic_rank FROM
+        (
+            SELECT *,  RANK ()  OVER( ORDER BY roc DESC) AS roc_rank,
+            RANK () OVER( ORDER BY yield DESC) AS yield_rank FROM stock_info
+        )
+    )
+    ORDER BY magic_rank ASC
+    ''', conn).to_csv('stock_info.csv')
+    if conn:
+        conn.close()
+
+    # TODO Return a database that's sorted by rankings?
+
+
+def print_db(db_file_name):
+    conn = sq.connect(rf"{db_file_name}")
     print(pd.read_sql_query("SELECT * FROM stock_info", conn))
     if conn:
         conn.close()
 
 
-def get_mf_rankings(db, tickers):
-    # TODO Filter out the stocks below a certain market cap
-    # TODO Generate the magic formula rankings based on Return on Capital and Earning Yield
-    # TODO Return a database that's sorted by rankings?
-    None
-
-
 # TODO This is mainly for decreasing the time to retrieve data. Most filtering, otherwise, should be done in SQL
+# TODO Filter stocks to just US common stocks
 def filter_tickers(cap):
     ticker_temp = []
     for i, ticker in enumerate(ticker_list):
         if get_market_cap(ticker) >= cap:
             ticker_temp.append(ticker)
+    print(f"Length of filtered ticker_list: {len(ticker_temp)}")
 
     return ticker_temp
 
 
-def retrieve_data(batch_sz, tickers, metric, file_name, balance, income, cap):
+def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
     if batch_sz == 0:
         batch_sz = len(tickers)
     batches = len(tickers) // batch_sz
@@ -157,27 +180,22 @@ def retrieve_data(batch_sz, tickers, metric, file_name, balance, income, cap):
 
         if metric == "balance":
             print(f"Retrieving annual balance sheets from Yahoo Finance...")
-            balance.update(yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory'])
-
-            print(f"Saving batch {i + 1} to JSON file...")
-            json.dump(balance, open(file_name + '.json', 'w'))
+            data_dict.update(yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory'])
 
         elif metric == "income":
             print(f"Retrieving annual income statement history from Yahoo Finance...")
-            income.update(yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory'])
-
-            print(f"Saving batch {i + 1} to JSON file...")
-            json.dump(income, open(file_name + '.json', 'w'))
+            data_dict.update(yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory'])
 
         elif metric == "cap":
             print(f"Retrieving market cap information from Yahoo Finance...")
-            cap.update(yahoo_financials.get_market_cap())
-
-            print(f"Saving batch {i + 1} to JSON file...")
-            json.dump(cap, open(file_name + '.json', 'w'))
+            data_dict.update(yahoo_financials.get_market_cap())
 
         else:
             print("Metric entered is not recognized.")
+            continue
+
+        print(f"Saving batch {i + 1} to JSON file...")
+        json.dump(data_dict, open(file_name + '.json', 'w'))
 
         end_loop = time.time()
 
@@ -185,26 +203,28 @@ def retrieve_data(batch_sz, tickers, metric, file_name, balance, income, cap):
         print()
 
 
-# Checks balance_sheet, income_statement, and market_cap dictionaries for None values and removes those entries from
-# the dictionaries and the ticker_list, then updates their respective JSON files. Always call this after refreshing data
+# Checks balance_sheet, income_statement, and market_cap dictionaries for None values and empty list values, and removes
+# those entries from the dictionaries and the ticker_list, then updates their respective JSON files.
+# Always called after refreshing data
 def clean_tickers():
+    print("Cleaning tickers...")
     none_tickers = set()
     global balance_sheet, income_statement, market_cap, ticker_list
     temp_balance = {}
     temp_income = {}
     temp_cap = {}
     for k, v in balance_sheet.items():
-        if v is not None:
+        if v is not None and v != []:
             temp_balance[k] = v
         else:
             none_tickers.add(k)
     for k, v in income_statement.items():
-        if v is not None:
+        if v is not None and v != []:
             temp_income[k] = v
         else:
             none_tickers.add(k)
     for k, v in market_cap.items():
-        if v is not None:
+        if v is not None and v != []:
             temp_cap[k] = v
         else:
             none_tickers.add(k)
@@ -229,9 +249,9 @@ def create_process(batch_sz, p_tickers, p_id):
     fn_balance = 'annual_balance_sheet'
     fn_income = 'annual_income_statement'
     fn_cap = 'market_cap_info'
-    retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet, income_statement, market_cap)
-    retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", balance_sheet, income_statement, market_cap)
-    retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", balance_sheet, income_statement, market_cap)
+    retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet)
+    retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", income_statement)
+    retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap)
 
 
 # Takes the various JSON files from processes and updates the dictionaries: balance_sheet, income_statement, market_cap
@@ -334,9 +354,9 @@ if __name__ == '__main__':
         balance_sheet = {}
         income_statement = {}
         market_cap = {}
-        retrieve_data(batch_size, ticker_list, "balance", fn_balance, balance_sheet, income_statement, market_cap)
-        retrieve_data(batch_size, ticker_list, "income", fn_income, balance_sheet, income_statement, market_cap)
-        retrieve_data(batch_size, ticker_list, "cap", fn_cap, balance_sheet, income_statement, market_cap)
+        retrieve_data(batch_size, ticker_list, "balance", fn_balance, balance_sheet)
+        retrieve_data(batch_size, ticker_list, "income", fn_income, income_statement)
+        retrieve_data(batch_size, ticker_list, "cap", fn_cap, market_cap)
         clean_tickers()
     else:
         print("Loading all stock data from json files...")
@@ -357,7 +377,7 @@ if __name__ == '__main__':
         # Step 1: Consolidate any JSON sub_files into the dictionaries for the respective metric
         # Iterate through all sub_lists of each process
         print("Consolidating JSON files and removing sub_files...")
-        consolidate_json()
+        consolidate_json(remove=True)
 
         # Step 2: Find the tickers in the ticker_list whose data has not been retrieved yet
         balance_keys = balance_sheet.keys()
@@ -422,7 +442,8 @@ if __name__ == '__main__':
         # Step 7: Clean the tickers; this also saves the dictionaries into the main JSON file
         clean_tickers()
 
-    update_db(ticker_list)
+    update_db(balance_sheet.keys())
+    rank_stocks('stock_info.db')
     # TODO Filter out the stocks with annual reports that are not within the last year
     ticker_list = filter_tickers(50000000)
 
