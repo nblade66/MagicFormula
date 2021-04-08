@@ -15,9 +15,11 @@ There are 4 flags to be aware of:
 * -t    Retrieves the ticker_list using the files "nasdaqlisted.txt" and "otherlisted.txt"; if flag isn't used, ticker_list will load from the JSON file
 * -c    Continues retrieving the data of the stocks that aren't in the JSON files, but are in the ticker_list. Generally used if for some reason retrieval was interrupted.
 * -m    Updates only the market caps, and as such is faster than using the '-r' flag. This is an option because market caps update far more often than balance sheets or income statements.
+* -mc   Allows for multiprocessing (or multi-core) to fetch data from Yahoo Finance web scraping faster. An integer specifies how many processes should be run
 
 Things to be aware of:
-* The ticker_list used to debug can just be a Python list, but when actually running the code, make sure to use the -t flag to get a new list of tickers.
+* The ticker_list used to debug can just be any Python list, but when actually running the code, make sure to use the -t flag to get a new list of tickers.
 
 Some things I'm working on:
 * Making the code more modular, so that the functions can run on their own without breaking. This is pretty low priority, though.
+* Increasing speed of data fetching
