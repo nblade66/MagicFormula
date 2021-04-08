@@ -380,7 +380,7 @@ if __name__ == '__main__':
             p_size = (len(balance_sublist) // args.n_processes) + 1
         for i in range(args.n_processes):
             # Store the separate lists of tickers for each process into a list
-            p_balance_list.append(balance_sublist[i: min((i+1) * p_size, len(balance_sublist))])
+            p_balance_list.append(balance_sublist[i * p_size: min((i+1) * p_size, len(balance_sublist))])
 
         if len(income_sublist) % args.n_processes == 0:
             p_size = len(income_sublist) // args.n_processes
@@ -388,7 +388,7 @@ if __name__ == '__main__':
             # TODO Find better method when # of processes does not divide evenly into # number of tickers
             p_size = (len(income_sublist) // args.n_processes) + 1
         for i in range(args.n_processes):
-            p_income_list.append(income_sublist[i: min((i+1) * p_size, len(income_sublist))])
+            p_income_list.append(income_sublist[i * p_size: min((i+1) * p_size, len(income_sublist))])
 
         if len(cap_sublist) % args.n_processes == 0:
             p_size = len(cap_sublist) // args.n_processes
@@ -396,7 +396,7 @@ if __name__ == '__main__':
             # TODO Find better method when # of processes does not divide evenly into # number of tickers
             p_size = (len(cap_sublist) // args.n_processes) + 1
         for i in range(args.n_processes):
-            p_cap_list.append(cap_sublist[i: min((i+1) * p_size, len(cap_sublist))])
+            p_cap_list.append(cap_sublist[i * p_size: min((i+1) * p_size, len(cap_sublist))])
 
         # TODO Step 4: Retrieve the data; each list in the process lists gets its own process
         p_ticker_list = list(zip(p_balance_list, p_income_list, p_cap_list))
