@@ -24,13 +24,27 @@ def get_ev(ticker):
 
 
 def get_net_working_capital(ticker):
-    return get_totalCurrentAssets(ticker) - get_totalCurrentLiabilities(ticker)
+    return max(0, get_totalCurrentAssets(ticker) - get_excess_cash(ticker) - get_accountsPayable(ticker))
 
 
 # TODO Find a company with goodwill on its balance sheet and check if netTangibleAssets subtracts off goodwill or not
 #   (Or if it only subtracts off "intangibleAssets")
 def get_fixed_assets(ticker):
     return get_netTangibleAssets(ticker) - get_totalCurrentAssets(ticker) + get_totalLiab(ticker)
+
+
+def get_excess_cash(ticker):
+    return get_cash(ticker) - max(0, get_totalCurrentLiabilities(ticker) - get_totalCurrentAssets(ticker) +
+                                  get_cash(ticker))
+
+
+def get_accountsPayable(ticker):
+    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    try:
+        return balance_dict['accountsPayable']
+    except Exception as e:
+        print(f"Missing {e} information for {ticker}")
+        return 0
 
 
 def get_totalLiab(ticker):
@@ -122,7 +136,6 @@ def insert_data(conn, ticker_info):
     conn.commit()
 
 
-# TODO Add a column for the date of the latest report? That way I can filter by date
 # TODO Have a command line argument option to drop the table and refresh (instead of always dropping the table)
 def update_db(tickers):
     print("Updating database...")
@@ -146,7 +159,7 @@ def update_db(tickers):
         conn.close()
 
 
-# TODO Is there a way to exclude financial industry and utilities from the list?
+# TODO Is there a way to exclude financial industry and utilities from the list? Also, to exclude stuff like ETFs, etc.
 # TODO Should I also exclude stocks below a certain volume?
 def rank_stocks(db):
     # TODO Filter out the stocks below a certain market cap
@@ -242,21 +255,37 @@ def clean_tickers():
     temp_balance = {}
     temp_income = {}
     temp_cap = {}
-    for k, v in balance_sheet.items():
-        if v is not None and v != []:
-            temp_balance[k] = v
-        else:
-            none_tickers.add(k)
-    for k, v in income_statement.items():
-        if v is not None and v != []:
-            temp_income[k] = v
-        else:
-            none_tickers.add(k)
-    for k, v in market_cap.items():
-        if v is not None and v != []:
-            temp_cap[k] = v
-        else:
-            none_tickers.add(k)
+
+    # for k, v in balance_sheet.items():
+    #     if v is not None and v != []:
+    #         temp_balance[k] = v
+    #     else:
+    #         none_tickers.add(k)
+    # for k, v in income_statement.items():
+    #     if v is not None and v != []:
+    #         temp_income[k] = v
+    #     else:
+    #         none_tickers.add(k)
+    # for k, v in market_cap.items():
+    #     if v is not None and v != []:
+    #         temp_cap[k] = v
+    #     else:
+    #         none_tickers.add(k)
+
+    for ticker in ticker_list:
+        # if get_net_working_capital(ticker) < 0 or get_fixed_assets(ticker) < 0:
+        #     none_tickers.add(ticker)
+        if balance_sheet[ticker] is None or income_statement[ticker] is None or market_cap[ticker] is None\
+                or balance_sheet[ticker] == [] or income_statement[ticker] == [] or market_cap[ticker] == []:
+            none_tickers.add(ticker)
+
+    ticker_list = [i for i in ticker_list if i not in none_tickers]
+    json.dump(ticker_list, open('ticker_list.json', 'w'))
+
+    for ticker in ticker_list:
+        temp_balance[ticker] = balance_sheet[ticker]
+        temp_income[ticker] = income_statement[ticker]
+        temp_cap[ticker] = market_cap[ticker]
 
     balance_sheet = temp_balance
     json.dump(balance_sheet, open('annual_balance_sheet.json', 'w'))
@@ -264,9 +293,6 @@ def clean_tickers():
     json.dump(income_statement, open('annual_income_statement.json', 'w'))
     market_cap = temp_cap
     json.dump(market_cap, open('market_cap_info.json', 'w'))
-
-    ticker_list = [i for i in ticker_list if i not in none_tickers]
-    json.dump(ticker_list, open('ticker_list.json', 'w'))
 
 
 def create_process(batch_sz, p_tickers, p_id):
@@ -471,7 +497,8 @@ if __name__ == '__main__':
         # Step 7: Clean the tickers; this also saves the dictionaries into the main JSON file
         clean_tickers()
 
-    # update_db(balance_sheet.keys())
+    update_db(balance_sheet.keys())
+
     rank_stocks('stock_info.db')
     #ticker_list = filter_tickers(50000000)
 
