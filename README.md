@@ -6,9 +6,8 @@ Stock data is retrieved using the YahooFinance API (unofficial, so it uses websc
 
 Lists of stocks were found on http://ftp.nasdaqtrader.com/, in Symbol Directory. I used nasdaqlisted.txt and otherlisted.txt
 
-It then calculates Return on Capital and Earnings Yield, as specified by Joel Greenblatt. Some of the exact metrics he used were not available on Yahoo Finance, so I had to do some Googling to figure out what the equivalent metrics were (for example, I found that Short Term Debt is also known as Current Liabilities). If things are wrong, let me know.
+It then calculates Return on Capital and Earnings Yield, as specified by Joel Greenblatt. Some of the exact metrics he used were not available on Yahoo Finance, so I had to do some Googling to figure out what the equivalent metrics were (for example, I found that Short Term Debt is also known as Current Liabilities). He also does not reveal some of his exact calculation methods, such as for Net Working Capital, so I did my best based on this [site](https://www.businessinsider.com/magic-formula-investing-amp-the-little-book-that-beats-the-markets-greenblatts-roc-amp-earnings-yield-approach-2011-4). If things are wrong, let me know.
 Stocks below a certain market cap are then filtered out (as he suggests to do), and ranked based on Return on Capital and Earnings Yield.
-(I haven't implemented this part yet, but after I do, I'll cross-check against his site https://magicformulainvesting.com)
 
 There are 4 flags to be aware of:
 * -r    Retrieves the data (balance_sheet, income_statement, market_cap) of all the stocks listed in the "ticker_list" list. This will take a really long time, since it uses web scraping. As such, I implement retrieval in batches, which are then saved to the JSON file. If no flag, then data will load from the JSON file
