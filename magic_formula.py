@@ -13,7 +13,8 @@ import multitasking
 fn_balance = 'annual_balance_sheet'
 fn_income = 'annual_income_statement'
 fn_cap = 'market_cap_info'
-batch_size = 150
+batch_size = 10
+max_threads = 10
 dict_lock = threading.Lock()
 json_lock = threading.Lock()
 
@@ -227,12 +228,20 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
         thread = threading.Thread(target=create_retrieve_thread, args=(ticker_sublist, metric, file_name, data_dict, i))
         thread_jobs.append(thread)
 
-    for j in thread_jobs:
-        j.start()
-        time.sleep(10)
+    running = 0
+    next_count = 0
+    join_count = 0
+    while join_count < len(thread_jobs):
+        if running < max_threads or next_count >= len(thread_jobs):
+            thread_jobs[next_count].start()
+            running += 1
+            next_count += 1
+        elif join_count < next_count:
+            thread_jobs[join_count].join()
+            running -= 1
+            join_count += 1
 
-    for j in thread_jobs:
-        j.join()
+
 
 
 def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
@@ -258,14 +267,12 @@ def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
 
     dict_lock.acquire()
     data_dict.update(financial_statement)
-    dict_lock.release()
 
     end_loop = time.time()
 
-    json_lock.acquire()
     print(f"Saving batch {batch_no + 1} to JSON file...")
     json.dump(data_dict, open(file_name + '.json', 'w'))
-    json_lock.release()
+    dict_lock.release()
 
     print(f"Time elapsed for batch {batch_no + 1}: {end_loop - start_loop}, metric: {metric}")
     print()
