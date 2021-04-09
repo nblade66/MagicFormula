@@ -14,9 +14,8 @@ fn_balance = 'annual_balance_sheet'
 fn_income = 'annual_income_statement'
 fn_cap = 'market_cap_info'
 batch_size = 10
-max_threads = 10
+max_threads = 20
 dict_lock = threading.Lock()
-json_lock = threading.Lock()
 
 
 def get_roc(ticker):
@@ -232,7 +231,7 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
     next_count = 0
     join_count = 0
     while join_count < len(thread_jobs):
-        if running < max_threads or next_count >= len(thread_jobs):
+        if running < max_threads and next_count < len(thread_jobs):
             thread_jobs[next_count].start()
             running += 1
             next_count += 1
