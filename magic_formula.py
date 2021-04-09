@@ -4,6 +4,7 @@ import argparse
 import time
 import os
 from multiprocessing import Process
+import threading
 import sqlite3 as sq
 import pandas as pd
 from datetime import date, timedelta
@@ -211,38 +212,57 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
     if batch_sz == 0:
         batch_sz = len(tickers)
     batches = len(tickers) // batch_sz
+    thread_jobs = []
+    print("Creating Threads...")
     for i in range(batches + 1):
-        start_loop = time.time()
         ticker_sublist = tickers[i * batch_sz: min((i + 1) * batch_sz, len(tickers))]
         if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
             break
 
-        print(f"Batch {i + 1}: Tickers to be retrieved are: {ticker_sublist}")
-        yahoo_financials = YahooFinancials(ticker_sublist)
+        thread = threading.Thread(target=create_retrieve_thread(ticker_sublist, metric, file_name, data_dict, i))
+        thread_jobs.append(thread)
 
-        if metric == "balance":
-            print(f"Retrieving annual balance sheets from Yahoo Finance...")
-            data_dict.update(yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory'])
+    for j in thread_jobs:
+        j.start()
 
-        elif metric == "income":
-            print(f"Retrieving annual income statement history from Yahoo Finance...")
-            data_dict.update(yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory'])
+    for j in thread_jobs:
+        j.join()
 
-        elif metric == "cap":
-            print(f"Retrieving market cap information from Yahoo Finance...")
-            data_dict.update(yahoo_financials.get_market_cap())
+def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
+# TODO Implement locks for both the data_dict and the JSON file
+    start_loop = time.time()
+    print(f"Batch/thread {batch_no + 1}: Tickers to be retrieved are: {tickers}")
+    yahoo_financials = YahooFinancials(tickers)
 
-        else:
-            print("Metric entered is not recognized.")
-            continue
+    if metric == "balance":
+        print(f"Retrieving annual balance sheets from Yahoo Finance...")
+        financial_statement = yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
 
-        print(f"Saving batch {i + 1} to JSON file...")
-        json.dump(data_dict, open(file_name + '.json', 'w'))
+    elif metric == "income":
+        print(f"Retrieving annual income statement history from Yahoo Finance...")
+        financial_statement = yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory']
 
-        end_loop = time.time()
+    elif metric == "cap":
+        print(f"Retrieving market cap information from Yahoo Finance...")
+        financial_statement = yahoo_financials.get_market_cap()
 
-        print(f"Time elapsed for batch {i + 1}: {end_loop - start_loop}, metric: {metric}")
-        print()
+    else:
+        print("Metric entered is not recognized.")
+        financial_statement = {}
+
+    dict_lock.acquire()
+    data_dict.update(financial_statement)
+    dict_lock.release()
+
+    end_loop = time.time()
+
+    json_lock.acquire()
+    print(f"Saving batch {batch_no + 1} to JSON file...")
+    json.dump(data_dict, open(file_name + '.json', 'w'))
+    json_lock.release()
+
+    print(f"Time elapsed for batch {batch_no + 1}: {end_loop - start_loop}, metric: {metric}")
+    print()
 
 
 # Checks balance_sheet, income_statement, and market_cap dictionaries for None values and empty list values, and removes
@@ -363,6 +383,8 @@ if __name__ == '__main__':
     fn_income = 'annual_income_statement'
     fn_cap = 'market_cap_info'
     batch_size = 10
+    dict_lock = threading.Lock()
+    json_lock = threading.Lock()
 
     start = time.time()
 
