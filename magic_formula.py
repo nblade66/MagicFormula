@@ -229,6 +229,7 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
 
     for j in thread_jobs:
         j.start()
+        time.sleep(10)
 
     for j in thread_jobs:
         j.join()
@@ -236,7 +237,6 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
 
 def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
     start_loop = time.time()
-    time.sleep(10)
     print(f"Batch/thread {batch_no + 1}: Tickers to be retrieved are: {tickers}")
     yahoo_financials = YahooFinancials(tickers)
 
