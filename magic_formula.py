@@ -8,9 +8,16 @@ import threading
 import sqlite3 as sq
 import pandas as pd
 from datetime import date, timedelta
+import multitasking
+
+fn_balance = 'annual_balance_sheet'
+fn_income = 'annual_income_statement'
+fn_cap = 'market_cap_info'
+batch_size = 150
+dict_lock = threading.Lock()
+json_lock = threading.Lock()
 
 
-# TODO Deal with the case where the company has negative Net Working Capital or Fixed Assets
 def get_roc(ticker):
     return get_ebit(ticker) / (get_net_working_capital(ticker) + get_fixed_assets(ticker))
 
@@ -196,16 +203,14 @@ def print_db(db_file_name):
         conn.close()
 
 
-# TODO This is mainly for decreasing the time to retrieve data. Most filtering, otherwise, should be done in SQL
-# TODO Filter stocks to just US common stocks
-def filter_tickers(cap):
-    ticker_temp = []
-    for i, ticker in enumerate(ticker_list):
-        if get_market_cap(ticker) >= cap:
-            ticker_temp.append(ticker)
-    print(f"Length of filtered ticker_list: {len(ticker_temp)}")
-
-    return ticker_temp
+# def filter_tickers(cap):
+#     ticker_temp = []
+#     for i, ticker in enumerate(ticker_list):
+#         if get_market_cap(ticker) >= cap:
+#             ticker_temp.append(ticker)
+#     print(f"Length of filtered ticker_list: {len(ticker_temp)}")
+#
+#     return ticker_temp
 
 
 def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
@@ -219,7 +224,7 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
         if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
             break
 
-        thread = threading.Thread(target=create_retrieve_thread(ticker_sublist, metric, file_name, data_dict, i))
+        thread = threading.Thread(target=create_retrieve_thread, args=(ticker_sublist, metric, file_name, data_dict, i))
         thread_jobs.append(thread)
 
     for j in thread_jobs:
@@ -228,9 +233,10 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
     for j in thread_jobs:
         j.join()
 
+
 def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
-# TODO Implement locks for both the data_dict and the JSON file
     start_loop = time.time()
+    time.sleep(10)
     print(f"Batch/thread {batch_no + 1}: Tickers to be retrieved are: {tickers}")
     yahoo_financials = YahooFinancials(tickers)
 
@@ -379,13 +385,6 @@ if __name__ == '__main__':
                         help='Specify the number of processes to scrape data with')
     args = parser.parse_args()
 
-    fn_balance = 'annual_balance_sheet'
-    fn_income = 'annual_income_statement'
-    fn_cap = 'market_cap_info'
-    batch_size = 10
-    dict_lock = threading.Lock()
-    json_lock = threading.Lock()
-
     start = time.time()
 
     # Save the most recent balance sheets that are fetched, so that I don't need to fetch every time. Have the option to
@@ -410,7 +409,7 @@ if __name__ == '__main__':
         with open('ticker_list.json') as json_list:
             ticker_list = json.load(json_list)
 
-    # ticker_list = ticker_list[0:18]   # For debugging purposes, when we want a smaller ticker_list to work with
+    # ticker_list = ticker_list[0:20]   # For debugging purposes, when we want a smaller ticker_list to work with
 
     if not args.refresh and args.refresh_market_caps:
         with open('market_cap_info.json') as json_list:
