@@ -6,8 +6,10 @@ import os
 from multiprocessing import Process
 import sqlite3 as sq
 import pandas as pd
+from datetime import date, timedelta
 
 
+# TODO Deal with the case where the company has negative Net Working Capital or Fixed Assets
 def get_roc(ticker):
     return get_ebit(ticker) / (get_net_working_capital(ticker) + get_fixed_assets(ticker))
 
@@ -93,9 +95,28 @@ def get_market_cap(ticker):
     return market_cap[ticker]
 
 
+# Gets the most recent dates of the balance sheet and income statement, and returns the least recent between the two
+# The point is to check how recent the stock's information is.
+def get_financials_date(ticker):
+    balance_date = list(balance_sheet[ticker][0].keys())[0]
+    balance_date = balance_date.split('-')
+    balance_date = date(int(balance_date[0]), int(balance_date[1]), int(balance_date[2]))
+    # print(f"{balance_date}, Object type: {type(balance_date)}")
+    income_date = list(income_statement[ticker][0].keys())[0]
+    income_date = income_date.split('-')
+    income_date = date(int(income_date[0]), int(income_date[1]), int(income_date[2]))
+    # print(f"{income_date}, Object type: {type(income_date)}")
+
+    # Return the less recent date (i.e. smaller date)
+    if balance_date > income_date:
+        return income_date
+    else:
+        return balance_date
+
+
 def insert_data(conn, ticker_info):
-    sql = ''' REPLACE INTO stock_info (ticker, roc, yield, market_cap)
-              VALUES(?,?,?,?) '''
+    sql = ''' REPLACE INTO stock_info (ticker, roc, yield, market_cap, most_recent)
+              VALUES(?,?,?,?,?) '''
     cur = conn.cursor()
     cur.execute(sql, ticker_info)
     conn.commit()
@@ -105,18 +126,19 @@ def insert_data(conn, ticker_info):
 # TODO Have a command line argument option to drop the table and refresh (instead of always dropping the table)
 def update_db(tickers):
     print("Updating database...")
-    conn = sq.connect(r'stock_info.db')
+    conn = sq.connect(r'stock_info.db', detect_types=sq.PARSE_DECLTYPES)
     cursor = conn.cursor()
     cursor.execute("DROP TABLE IF EXISTS stock_info")
     cursor.execute('''CREATE TABLE IF NOT EXISTS stock_info (
     ticker text PRIMARY KEY,
     roc real NOT NULL,
     yield real NOT NULL,
-    market_cap int NOT NULL
+    market_cap int NOT NULL,
+    most_recent DATE
     );''')
     for ticker in tickers:
         try:
-            data = (ticker, get_roc(ticker), get_yield(ticker), get_market_cap(ticker))
+            data = (ticker, get_roc(ticker), get_yield(ticker), get_market_cap(ticker), get_financials_date(ticker))
             insert_data(conn, data)
         except Exception as e:
             print(f"Insert data error for ticker {ticker}: {e}. Going to next ticker.")
@@ -124,26 +146,33 @@ def update_db(tickers):
         conn.close()
 
 
+# TODO Is there a way to exclude financial industry and utilities from the list?
+# TODO Should I also exclude stocks below a certain volume?
 def rank_stocks(db):
     # TODO Filter out the stocks below a certain market cap
-    # TODO Generate the magic formula rankings based on Return on Capital and Earning Yield
     print("Ranking stocks based on Magic Formula...")
     conn = sq.connect(rf'{db}')
     cursor = conn.cursor()
-    pd.read_sql_query('''
+
+    last_year_date = date.today() - timedelta(days=365)
+    print(f"Last year's date: {last_year_date.strftime('%Y-%m-%d')}")
+
+    query = cursor.execute(f'''
     SELECT * FROM (
         SELECT *, roc_rank + yield_rank AS magic_rank FROM
         (
             SELECT *,  RANK ()  OVER( ORDER BY roc DESC) AS roc_rank,
-            RANK () OVER( ORDER BY yield DESC) AS yield_rank FROM stock_info
+            RANK () OVER( ORDER BY yield DESC) AS yield_rank FROM stock_info      
         )
-    )
+    ) WHERE most_recent > date('{last_year_date.strftime('%Y-%m-%d')}')
     ORDER BY magic_rank ASC
-    ''', conn).to_csv('stock_info.csv')
+    ''')
+
+    cols = [column[0] for column in query.description]
+    pd.DataFrame.from_records(data=query.fetchall(), columns=cols).to_csv('stock_info.csv')
+
     if conn:
         conn.close()
-
-    # TODO Return a database that's sorted by rankings?
 
 
 def print_db(db_file_name):
@@ -266,7 +295,7 @@ def consolidate_json(remove=False):
             try:
                 os.remove(f"{fn_balance}_{process_id}.json")
             except OSError as e:
-                print(f"Error deleting JSON file {fn_balance}_{process_id}.json")
+                print(f"Error deleting JSON file {fn_balance}_{process_id}.json: {e}")
         process_id += 1
 
     process_id = 0
@@ -278,7 +307,7 @@ def consolidate_json(remove=False):
             try:
                 os.remove(f"{fn_income}_{process_id}.json")
             except OSError as e:
-                print(f"Error deleting JSON file {fn_income}_{process_id}.json")
+                print(f"Error deleting JSON file {fn_income}_{process_id}.json: {e}")
         process_id += 1
 
     process_id = 0
@@ -290,7 +319,7 @@ def consolidate_json(remove=False):
             try:
                 os.remove(f"{fn_cap}_{process_id}.json")
             except OSError as e:
-                print(f"Error deleting JSON file {fn_cap}_{process_id}.json")
+                print(f"Error deleting JSON file {fn_cap}_{process_id}.json: {e}")
         process_id += 1
 
 
@@ -442,10 +471,9 @@ if __name__ == '__main__':
         # Step 7: Clean the tickers; this also saves the dictionaries into the main JSON file
         clean_tickers()
 
-    update_db(balance_sheet.keys())
+    # update_db(balance_sheet.keys())
     rank_stocks('stock_info.db')
-    # TODO Filter out the stocks with annual reports that are not within the last year
-    ticker_list = filter_tickers(50000000)
+    #ticker_list = filter_tickers(50000000)
 
     end = time.time()
 
