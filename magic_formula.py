@@ -8,13 +8,14 @@ import threading
 import sqlite3 as sq
 import pandas as pd
 from datetime import date, timedelta
-import multitasking
+import requests
+from bs4 import BeautifulSoup
 
 fn_balance = 'annual_balance_sheet'
 fn_income = 'annual_income_statement'
 fn_cap = 'market_cap_info'
-batch_size = 10
-max_threads = 20
+batch_size = 20
+max_threads = 10        # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
 dict_lock = threading.Lock()
 
 
@@ -38,7 +39,8 @@ def get_net_working_capital(ticker):
 # TODO Find a company with goodwill on its balance sheet and check if netTangibleAssets subtracts off goodwill or not
 #   (Or if it only subtracts off "intangibleAssets")
 def get_fixed_assets(ticker):
-    return get_netTangibleAssets(ticker) - get_totalCurrentAssets(ticker) + get_totalLiab(ticker)
+    # return get_netTangibleAssets(ticker) - get_totalCurrentAssets(ticker) + get_totalLiab(ticker)
+    return get_totalAssets(ticker) - get_totalCurrentAssets(ticker) - get_intangibles(ticker) - get_goodwill(ticker)
 
 
 def get_excess_cash(ticker):
@@ -55,10 +57,37 @@ def get_accountsPayable(ticker):
         return 0
 
 
+def get_intangibles(ticker):
+    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    try:
+        return balance_dict['intangibleAssets']
+    except Exception as e:
+        print(f"Missing {e} information for {ticker}")
+        return 0
+
+
+def get_goodwill(ticker):
+    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    try:
+        return balance_dict['goodWill']
+    except Exception as e:
+        print(f"Missing {e} information for {ticker}")
+        return 0
+
+
 def get_totalLiab(ticker):
     balance_dict = list(balance_sheet[ticker][0].values())[0]
     try:
         return balance_dict['totalLiab']
+    except Exception as e:
+        print(f"Missing {e} information for {ticker}")
+        return 0
+
+
+def get_totalAssets(ticker):
+    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    try:
+        return balance_dict['totalAssets']
     except Exception as e:
         print(f"Missing {e} information for {ticker}")
         return 0
@@ -168,6 +197,7 @@ def update_db(tickers):
 
 
 # TODO Is there a way to exclude financial industry and utilities from the list? Also, to exclude stuff like ETFs, etc.
+#   This could be a good chance to practice BeautifulSoup4 to get sector, industry, and location from Finviz
 # TODO Should I also exclude stocks below a certain volume?
 def rank_stocks(db):
     # TODO Filter out the stocks below a certain market cap
@@ -175,7 +205,7 @@ def rank_stocks(db):
     conn = sq.connect(rf'{db}')
     cursor = conn.cursor()
 
-    last_year_date = date.today() - timedelta(days=365)
+    last_year_date = date.today() - timedelta(days=400)
     print(f"Last year's date: {last_year_date.strftime('%Y-%m-%d')}")
 
     query = cursor.execute(f'''
@@ -233,14 +263,13 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
     while join_count < len(thread_jobs):
         if running < max_threads and next_count < len(thread_jobs):
             thread_jobs[next_count].start()
+            time.sleep(3)   # So that requests don't come it TOO fast
             running += 1
             next_count += 1
         elif join_count < next_count:
             thread_jobs[join_count].join()
             running -= 1
             join_count += 1
-
-
 
 
 def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
@@ -379,6 +408,61 @@ def consolidate_json(remove=False):
             except OSError as e:
                 print(f"Error deleting JSON file {fn_cap}_{process_id}.json: {e}")
         process_id += 1
+
+
+# Returns dict, {'ticker': {'sector': sector, 'industry': industry, 'location': location}}
+# TODO scrape location
+def scrape_sector(ticker):
+    URL = f'https://finance.yahoo.com/quote/{ticker.lower()}/profile?p={ticker.lower()}'
+    page = requests.get(URL)
+
+    soup = BeautifulSoup(page.content, 'html.parser')
+
+    results = soup.find_all('span', class_='Fw(600)')
+
+    location = soup.find_all('p', class_='D(ib) W(47.727%) Pend(40px)')
+
+    location = str(location[0]).split('15 -->')[1].split('<!-- /react-text')[0]
+    sector = results[0].text
+    industry = results[1].text
+
+    print(f"Sector: {sector}, Industry: {industry}, Country: {location}")
+
+    return {ticker.upper(): {'sector': sector, 'industry': industry, 'country': location}}
+
+
+# TODO Store the sector, industry, etc. information in a "Profile" dictionary with all the tickers, then save to JSON
+def scrape_sector_all(tickers, batch_sz=1):
+    if batch_sz == 0:
+        for ticker in tickers:
+            scrape_sector(ticker)
+
+    # TODO convert below code in the correct code
+    batches = len(tickers) // batch_sz
+    thread_jobs = []
+    print("Creating Threads...")
+    for i in range(batches + 1):
+        ticker_sublist = tickers[i * batch_sz: min((i + 1) * batch_sz, len(tickers))]
+        if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
+            break
+
+        thread = threading.Thread(target=scrape_sector, args=(ticker))
+        thread_jobs.append(thread)
+
+    running = 0
+    next_count = 0
+    join_count = 0
+    while join_count < len(thread_jobs):
+        if running < max_threads and next_count < len(thread_jobs):
+            thread_jobs[next_count].start()
+            time.sleep(3)   # So that requests don't come it TOO fast
+            running += 1
+            next_count += 1
+        elif join_count < next_count:
+            thread_jobs[join_count].join()
+            running -= 1
+            join_count += 1
+
 
 
 if __name__ == '__main__':
@@ -524,11 +608,11 @@ if __name__ == '__main__':
         # Step 7: Clean the tickers; this also saves the dictionaries into the main JSON file
         clean_tickers()
 
-    update_db(balance_sheet.keys())
+    #update_db(balance_sheet.keys())
 
-    rank_stocks('stock_info.db')
+    #rank_stocks('stock_info.db')
     #ticker_list = filter_tickers(50000000)
-
+    scrape_sector('CIH')
     end = time.time()
 
     print(f"Execution time: {end - start}")
