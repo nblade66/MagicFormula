@@ -10,6 +10,7 @@ import pandas as pd
 from datetime import date, timedelta
 import requests
 from bs4 import BeautifulSoup
+import re
 
 fn_balance = 'annual_balance_sheet'
 fn_income = 'annual_income_statement'
@@ -17,6 +18,7 @@ fn_cap = 'market_cap_info'
 batch_size = 20
 max_threads = 10        # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
 dict_lock = threading.Lock()
+sect_lock = threading.Lock()
 
 
 def get_roc(ticker):
@@ -411,7 +413,6 @@ def consolidate_json(remove=False):
 
 
 # Returns dict, {'ticker': {'sector': sector, 'industry': industry, 'location': location}}
-# TODO scrape location
 def scrape_sector(ticker):
     URL = f'https://finance.yahoo.com/quote/{ticker.lower()}/profile?p={ticker.lower()}'
     page = requests.get(URL)
@@ -422,63 +423,86 @@ def scrape_sector(ticker):
 
     location = soup.find_all('p', class_='D(ib) W(47.727%) Pend(40px)')
 
-    location = str(location[0]).split('15 -->')[1].split('<!-- /react-text')[0]
+    print(f"Ticker: {ticker}")
+
+    # location = str(location[0]).split('15 -->')[1].split('<!-- /react-text')[0]
+
+    #location = list(filter(lambda a: a != ' ', re.findall(r'[0-9]*(\D*)[0-9]+[http]', location[0].text)))[-1]
+    location_text = location[0].text
+    #location_text = "".join(location_text.split())
+    # TODO This doesn't work perfectly. E.g. frickin UK zip codes can have letters, and some companies don't even have
+    #   phone numbers or websites, which is what the below REGEX relies on. It's not too important right now, though
+    try:
+        country = re.findall(r'[0-9]*(\D*)[0-9 -]+[http]', location_text)[-1]
+    except IndexError as e:
+        print(f'Ticker: {ticker}, Error: {e}. Setting country as "TBD"')
+        country = "TBD"
     sector = results[0].text
     industry = results[1].text
 
-    print(f"Sector: {sector}, Industry: {industry}, Country: {location}")
+    print(f"Sector: {sector}, Industry: {industry}, Country: {country}")
 
-    return {ticker.upper(): {'sector': sector, 'industry': industry, 'country': location}}
+    return {ticker.upper(): {'sector': sector, 'industry': industry, 'country': country}}
 
 
 # TODO Store the sector, industry, etc. information in a "Profile" dictionary with all the tickers, then save to JSON
-def scrape_sector_all(tickers, batch_sz=1):
+def scrape_sector_all(tickers, batch_sz=0):
     if batch_sz == 0:
         for ticker in tickers:
-            scrape_sector(ticker)
+            sect_lock.acquire()
+            sector_dict.update(scrape_sector(ticker))
+            sect_lock.release()
 
-    # TODO convert below code in the correct code
-    batches = len(tickers) // batch_sz
-    thread_jobs = []
-    print("Creating Threads...")
-    for i in range(batches + 1):
-        ticker_sublist = tickers[i * batch_sz: min((i + 1) * batch_sz, len(tickers))]
-        if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
-            break
+    else:
+        batches = len(tickers) // batch_sz
+        thread_jobs = []
+        print("Creating Threads...")
+        for i in range(batches + 1):
+            ticker_sublist = tickers[i * batch_sz: min((i + 1) * batch_sz, len(tickers))]
+            if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
+                break
 
-        thread = threading.Thread(target=scrape_sector, args=(ticker))
-        thread_jobs.append(thread)
+            thread = threading.Thread(target=scrape_sector_all, args=(ticker_sublist, ))
+            thread_jobs.append(thread)
 
-    running = 0
-    next_count = 0
-    join_count = 0
-    while join_count < len(thread_jobs):
-        if running < max_threads and next_count < len(thread_jobs):
-            thread_jobs[next_count].start()
-            time.sleep(3)   # So that requests don't come it TOO fast
-            running += 1
-            next_count += 1
-        elif join_count < next_count:
-            thread_jobs[join_count].join()
-            running -= 1
-            join_count += 1
+        running = 0
+        next_count = 0
+        join_count = 0
+        while join_count < len(thread_jobs):
+            if running < max_threads and next_count < len(thread_jobs):
+                thread_jobs[next_count].start()
+                time.sleep(1)   # So that requests don't come it TOO fast
+                running += 1
+                next_count += 1
+            elif join_count < next_count:
+                thread_jobs[join_count].join()
+                running -= 1
+                join_count += 1
 
+    sect_lock.acquire()
+    json.dump(sector_dict, open('sector_info.json', 'w'))
+    sect_lock.release()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process refresh options')
-    parser.add_argument('--refresh', '-r', action='store_true', dest='refresh', help='flag determines if we refresh the yahoo finance data')
-    parser.add_argument('--tickers', '-t', action='store_true', dest='refresh_tickers', help='gets list of stocks from text files')
-    parser.add_argument('--update_market_caps', '-m', action='store_true', dest='refresh_market_caps', help='refreshes market cap info')
-    parser.add_argument('--continue', '-c', action='store_true', dest='continue_refresh', help='Refreshes only tickers not in each JSON file')
-    parser.add_argument('--multiprocess', '-mc', type=int, nargs='?', const=1, default=1, dest='n_processes',
+    parser.add_argument('--refresh', '-r', action='store_true', dest='refresh',
+                        help='flag determines if we refresh the yahoo finance data')
+    parser.add_argument('--tickers', '-t', action='store_true', dest='refresh_tickers',
+                        help='gets list of stocks from text files')
+    parser.add_argument('--update_market_caps', '-m', action='store_true', dest='refresh_market_caps',
+                        help='refreshes market cap info')
+    parser.add_argument('--continue', '-c', action='store_true', dest='continue_refresh',
+                        help='Refreshes only tickers not already stored in each JSON file')
+    parser.add_argument('--multiprocess', '-mc', type=int, nargs='?', default=1, dest='n_processes',
                         help='Specify the number of processes to scrape data with')
+    parser.add_argument('--sector', '-s', type=int, nargs='?', const=0, default=-1, dest='retrieve_sector',
+                        help='Retrieves company sector, industry, and country information')
     args = parser.parse_args()
 
     start = time.time()
 
-    # Save the most recent balance sheets that are fetched, so that I don't need to fetch every time. Have the option to
-    # refresh the market caps.
+    # Refresh the ticker list based on the nasdaqlisted.txt and otherlisted.txt files in the directory
     if args.refresh_tickers:
         print("Stripping text files to get list of stocks...")
         fhr = open('nasdaqlisted.txt', 'r')
@@ -501,6 +525,7 @@ if __name__ == '__main__':
 
     # ticker_list = ticker_list[0:20]   # For debugging purposes, when we want a smaller ticker_list to work with
 
+    # Refresh market cap info without retrieving all the other info about the stocks
     if not args.refresh and args.refresh_market_caps:
         with open('market_cap_info.json') as json_list:
             market_cap = json_list
@@ -512,9 +537,9 @@ if __name__ == '__main__':
         market_cap = yahoo_financials.get_market_cap()
         json.dump(market_cap, open('market_cap_info.json', 'w'))
 
-    # If refreshing the ticker information (balance sheets, income statements, and market caps), scrape the data in
+    # Retrieve the ticker information (balance sheets, income statements, and market caps), scrape the data in
     # batches, and save in batches.
-    # TODO Implement multiprocess webscraping
+    # TODO Retrieve sector data; make it a separate command line argument
     if args.refresh and not args.continue_refresh:
         print("Refreshing all stock data...")
         balance_sheet = {}
@@ -608,11 +633,16 @@ if __name__ == '__main__':
         # Step 7: Clean the tickers; this also saves the dictionaries into the main JSON file
         clean_tickers()
 
+    if args.retrieve_sector != -1:
+        print(f"Retrieving sector, industry, and country info.... Threads: {args.retrieve_sector}")
+        sector_dict = {}
+        # TODO Should I modify this to just use the same "batch_size" variable as when I get financial info?
+        scrape_sector_all(ticker_list, batch_sz=args.retrieve_sector)
+
     #update_db(balance_sheet.keys())
 
     #rank_stocks('stock_info.db')
     #ticker_list = filter_tickers(50000000)
-    scrape_sector('CIH')
     end = time.time()
 
     print(f"Execution time: {end - start}")
