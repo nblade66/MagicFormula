@@ -674,12 +674,9 @@ if __name__ == '__main__':
         with open('sector_info.json') as json_file:
             sector_dict = json.load(json_file)
 
-    print(sector_dict)
-
     update_db(balance_sheet.keys())
 
-
-    #rank_stocks('stock_info.db')
+    rank_stocks('stock_info.db')
     #ticker_list = filter_tickers(50000000)
     end = time.time()
 
