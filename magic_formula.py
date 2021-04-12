@@ -166,9 +166,23 @@ def get_financials_date(ticker):
         return balance_date
 
 
+def get_sector(ticker):
+    return sector_dict[ticker]['sector']
+
+
+def get_industry(ticker):
+    return sector_dict[ticker]['industry']
+
+
+def get_country(ticker):
+    return sector_dict[ticker]['country']
+
+
+# TODO Maybe insert sector, industry, and country in a separate UPDATE sql command, and insert null if they raise
+#   exceptions (e.g. if the information doesn't exist)
 def insert_data(conn, ticker_info):
-    sql = ''' REPLACE INTO stock_info (ticker, roc, yield, market_cap, most_recent)
-              VALUES(?,?,?,?,?) '''
+    sql = ''' REPLACE INTO stock_info (ticker, roc, yield, market_cap, most_recent, sector, industry, country)
+              VALUES(?,?,?,?,?,?,?,?) '''
     cur = conn.cursor()
     cur.execute(sql, ticker_info)
     conn.commit()
@@ -186,11 +200,15 @@ def update_db(tickers):
     roc real NOT NULL,
     yield real NOT NULL,
     market_cap int NOT NULL,
-    most_recent DATE
+    most_recent DATE,
+    sector text,
+    industry text,
+    country text
     );''')
     for ticker in tickers:
         try:
-            data = (ticker, get_roc(ticker), get_yield(ticker), get_market_cap(ticker), get_financials_date(ticker))
+            data = (ticker, get_roc(ticker), get_yield(ticker), get_market_cap(ticker), get_financials_date(ticker),
+                    get_sector(ticker), get_industry(ticker), get_country(ticker))
             insert_data(conn, data)
         except Exception as e:
             print(f"Insert data error for ticker {ticker}: {e}. Going to next ticker.")
@@ -651,8 +669,11 @@ if __name__ == '__main__':
         sector_dict = {}
         # TODO Should I modify this to just use the same "batch_size" variable as when I get financial info?
         scrape_sector_all(ticker_list, batch_sz=args.retrieve_sector)
+    else:
+        with open('sector_info.json') as json_file:
+            sector_dict = json_file
 
-    #update_db(balance_sheet.keys())
+    update_db(balance_sheet.keys())
 
     #rank_stocks('stock_info.db')
     #ticker_list = filter_tickers(50000000)
