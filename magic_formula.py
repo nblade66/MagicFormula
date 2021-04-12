@@ -670,10 +670,14 @@ if __name__ == '__main__':
         # TODO Should I modify this to just use the same "batch_size" variable as when I get financial info?
         scrape_sector_all(ticker_list, batch_sz=args.retrieve_sector)
     else:
+        print("Loading sector, industry, and country info from JSON file...")
         with open('sector_info.json') as json_file:
-            sector_dict = json_file
+            sector_dict = json.load(json_file)
+
+    print(sector_dict)
 
     update_db(balance_sheet.keys())
+
 
     #rank_stocks('stock_info.db')
     #ticker_list = filter_tickers(50000000)
