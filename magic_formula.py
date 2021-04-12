@@ -38,10 +38,9 @@ def get_net_working_capital(ticker):
     return max(0, get_totalCurrentAssets(ticker) - get_excess_cash(ticker) - get_accountsPayable(ticker))
 
 
-# TODO Find a company with goodwill on its balance sheet and check if netTangibleAssets subtracts off goodwill or not
-#   (Or if it only subtracts off "intangibleAssets")
 def get_fixed_assets(ticker):
     # return get_netTangibleAssets(ticker) - get_totalCurrentAssets(ticker) + get_totalLiab(ticker)
+
     return get_totalAssets(ticker) - get_totalCurrentAssets(ticker) - get_intangibles(ticker) - get_goodwill(ticker)
 
 
@@ -176,6 +175,7 @@ def insert_data(conn, ticker_info):
 
 
 # TODO Have a command line argument option to drop the table and refresh (instead of always dropping the table)
+# TODO Add columns for sector, country, and industry
 def update_db(tickers):
     print("Updating database...")
     conn = sq.connect(r'stock_info.db', detect_types=sq.PARSE_DECLTYPES)
@@ -414,38 +414,52 @@ def consolidate_json(remove=False):
 
 # Returns dict, {'ticker': {'sector': sector, 'industry': industry, 'location': location}}
 def scrape_sector(ticker):
-    URL = f'https://finance.yahoo.com/quote/{ticker.lower()}/profile?p={ticker.lower()}'
-    page = requests.get(URL)
+    try:
+        URL = f'https://finance.yahoo.com/quote/{ticker.lower()}/profile?p={ticker.lower()}'
+        page = requests.get(URL)
 
-    soup = BeautifulSoup(page.content, 'html.parser')
+        soup = BeautifulSoup(page.content, 'html.parser')
 
-    results = soup.find_all('span', class_='Fw(600)')
+        results = soup.find_all('span', class_='Fw(600)')
 
-    location = soup.find_all('p', class_='D(ib) W(47.727%) Pend(40px)')
+        location = soup.find_all('p', class_='D(ib) W(47.727%) Pend(40px)')
 
-    print(f"Ticker: {ticker}")
+        print(f"Ticker: {ticker}")
 
-    # location = str(location[0]).split('15 -->')[1].split('<!-- /react-text')[0]
+        # location = str(location[0]).split('15 -->')[1].split('<!-- /react-text')[0]
 
-    #location = list(filter(lambda a: a != ' ', re.findall(r'[0-9]*(\D*)[0-9]+[http]', location[0].text)))[-1]
-    location_text = location[0].text
+        #location = list(filter(lambda a: a != ' ', re.findall(r'[0-9]*(\D*)[0-9]+[http]', location[0].text)))[-1]
+
+        location_text = location[0].text
+        sector = results[0].text
+        industry = results[1].text
+    except IndexError as e:
+        print(f'Ticker: {ticker}, Error in finding profile: {e}. Setting sector, industry, and country as "TBD"')
+        location_text = '1234TBD1234http'
+        sector = 'TBD'
+        industry = 'TBD'
+    except Exception as e:
+        print(f'Ticker: {ticker}, Error in finding profile: {e}. Setting sector, industry, and country as "TBD"')
+        location_text = '1234TBD1234http'
+        sector = 'TBD'
+        industry = 'TBD'
+
+
+
     #location_text = "".join(location_text.split())
     # TODO This doesn't work perfectly. E.g. frickin UK zip codes can have letters, and some companies don't even have
     #   phone numbers or websites, which is what the below REGEX relies on. It's not too important right now, though
     try:
-        country = re.findall(r'[0-9]*(\D*)[0-9 -]+[http]', location_text)[-1]
+        country = re.findall(r'[0-9]*(\D*)[0-9 \-]+[http]', location_text)[-1]
     except IndexError as e:
-        print(f'Ticker: {ticker}, Error: {e}. Setting country as "TBD"')
+        print(f'Ticker: {ticker}, Error in finding country: {e}. Setting country as "TBD"')
         country = "TBD"
-    sector = results[0].text
-    industry = results[1].text
 
     print(f"Sector: {sector}, Industry: {industry}, Country: {country}")
 
     return {ticker.upper(): {'sector': sector, 'industry': industry, 'country': country}}
 
 
-# TODO Store the sector, industry, etc. information in a "Profile" dictionary with all the tickers, then save to JSON
 def scrape_sector_all(tickers, batch_sz=0):
     if batch_sz == 0:
         for ticker in tickers:
@@ -539,7 +553,6 @@ if __name__ == '__main__':
 
     # Retrieve the ticker information (balance sheets, income statements, and market caps), scrape the data in
     # batches, and save in batches.
-    # TODO Retrieve sector data; make it a separate command line argument
     if args.refresh and not args.continue_refresh:
         print("Refreshing all stock data...")
         balance_sheet = {}
@@ -634,7 +647,7 @@ if __name__ == '__main__':
         clean_tickers()
 
     if args.retrieve_sector != -1:
-        print(f"Retrieving sector, industry, and country info.... Threads: {args.retrieve_sector}")
+        print(f"Retrieving sector, industry, and country info.... Batch Size: {args.retrieve_sector}")
         sector_dict = {}
         # TODO Should I modify this to just use the same "batch_size" variable as when I get financial info?
         scrape_sector_all(ticker_list, batch_sz=args.retrieve_sector)
