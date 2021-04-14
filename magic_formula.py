@@ -431,6 +431,7 @@ def consolidate_json(remove=False):
 
 
 # Returns dict, {'ticker': {'sector': sector, 'industry': industry, 'location': location}}
+# TODO Unescape unicode and html code characters; low priority meh
 def scrape_sector(ticker):
     try:
         URL = f'https://finance.yahoo.com/quote/{ticker.lower()}/profile?p={ticker.lower()}'
