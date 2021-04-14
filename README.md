@@ -15,7 +15,7 @@ There are 4 flags to be aware of:
 * -c    Continues retrieving the data of the stocks that aren't in the JSON files, but are in the ticker_list. Generally used if for some reason retrieval was interrupted.
 * -m    Updates only the market caps, and as such is faster than using the '-r' flag. This is an option because market caps update far more often than balance sheets or income statements.
 * -mc   Allows for multiprocessing (or multi-core) to fetch data from Yahoo Finance web scraping faster. An integer specifies how many processes should be run
-* -s    Retrieves the sector info (sector, industry, and country) of all stocks in ticker_list and saves it to the stock_info.json file
+* -s    Retrieves the sector info (sector, industry, and country) of all stocks in ticker_list and saves it to the stock_info.json file. Takes a single integer argument that specifies the desired batch size. If no integer is given, a single batch is used
 
 Things to be aware of:
 * The ticker_list used to debug can just be any Python list; when actually running the code, make sure to use the -t flag to get a refreshed list of tickers.
