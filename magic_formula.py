@@ -10,11 +10,19 @@ import pandas as pd
 from datetime import date, timedelta
 import requests
 from bs4 import BeautifulSoup
+from pathlib import Path
 import re
 
-fn_balance = 'annual_balance_sheet'
-fn_income = 'annual_income_statement'
-fn_cap = 'market_cap_info'
+DATA_DIR = Path("data")
+fn_balance = 'annual_balance_sheet.json'
+fn_income = 'annual_income_statement.json'
+fn_cap = 'market_cap_info.json'
+fn_sector = 'sector_info.json'
+fn_nasdaq = 'nasdaqlisted.txt'
+fn_other = 'otherlisted.txt'
+fn_ticker = "ticker_list.json"
+fn_stock = 'stock_info.db'
+
 batch_size = 20
 max_threads = 10        # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
 dict_lock = threading.Lock()
@@ -192,7 +200,7 @@ def insert_data(conn, ticker_info):
 # TODO Add columns for sector, country, and industry
 def update_db(tickers):
     print("Updating database...")
-    conn = sq.connect(r'stock_info.db', detect_types=sq.PARSE_DECLTYPES)
+    conn = sq.connect(fn_stock, detect_types=sq.PARSE_DECLTYPES)
     cursor = conn.cursor()
     cursor.execute("DROP TABLE IF EXISTS stock_info")
     cursor.execute('''CREATE TABLE IF NOT EXISTS stock_info (
@@ -319,7 +327,7 @@ def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
     end_loop = time.time()
 
     print(f"Saving batch {batch_no + 1} to JSON file...")
-    json.dump(data_dict, open(file_name + '.json', 'w'))
+    json.dump(data_dict, open(DATA_DIR / file_name, 'w'))
     dict_lock.release()
 
     print(f"Time elapsed for batch {batch_no + 1}: {end_loop - start_loop}, metric: {metric}")
@@ -361,7 +369,7 @@ def clean_tickers():
             none_tickers.add(ticker)
 
     ticker_list = [i for i in ticker_list if i not in none_tickers]
-    json.dump(ticker_list, open('ticker_list.json', 'w'))
+    json.dump(ticker_list, open(DATA_DIR / fn_ticker, 'w'))
 
     for ticker in ticker_list:
         temp_balance[ticker] = balance_sheet[ticker]
@@ -369,11 +377,11 @@ def clean_tickers():
         temp_cap[ticker] = market_cap[ticker]
 
     balance_sheet = temp_balance
-    json.dump(balance_sheet, open('annual_balance_sheet.json', 'w'))
+    json.dump(balance_sheet, open(DATA_DIR / fn_balance, 'w'))
     income_statement = temp_income
-    json.dump(income_statement, open('annual_income_statement.json', 'w'))
+    json.dump(income_statement, open(DATA_DIR / fn_income, 'w'))
     market_cap = temp_cap
-    json.dump(market_cap, open('market_cap_info.json', 'w'))
+    json.dump(market_cap, open(DATA_DIR / fn_cap, 'w'))
 
 
 def create_process(batch_sz, p_tickers, p_id):
@@ -382,9 +390,6 @@ def create_process(batch_sz, p_tickers, p_id):
     balance_sheet = {}
     income_statement = {}
     market_cap = {}
-    fn_balance = 'annual_balance_sheet'
-    fn_income = 'annual_income_statement'
-    fn_cap = 'market_cap_info'
     retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet)
     retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", income_statement)
     retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap)
@@ -394,39 +399,42 @@ def create_process(batch_sz, p_tickers, p_id):
 # Also removes the JSON files after consolidating
 def consolidate_json(remove=False):
     process_id = 0
-    while os.path.isfile(f"{fn_balance}_{process_id}.json"):
-        with open(f'{fn_balance}_{process_id}.json') as json_file:
+    balance_sheet_json = DATA_DIR / f"{process_id}_{fn_balance}"
+    while os.path.isfile(balance_sheet_json):
+        with open(balance_sheet_json) as json_file:
             temp_dict = json.load(json_file)
             balance_sheet.update(temp_dict)
         if remove:
             try:
-                os.remove(f"{fn_balance}_{process_id}.json")
+                os.remove(balance_sheet_json)
             except OSError as e:
-                print(f"Error deleting JSON file {fn_balance}_{process_id}.json: {e}")
+                print(f"Error deleting JSON file {balance_sheet_json}: {e}")
         process_id += 1
 
     process_id = 0
-    while os.path.isfile(f"{fn_income}_{process_id}.json"):
-        with open(f'{fn_income}_{process_id}.json') as json_file:
+    income_sheet_json = DATA_DIR / f"{process_id}_{fn_income}"
+    while os.path.isfile(income_sheet_json):
+        with open(income_sheet_json) as json_file:
             temp_dict = json.load(json_file)
             income_statement.update(temp_dict)
         if remove:
             try:
-                os.remove(f"{fn_income}_{process_id}.json")
+                os.remove(income_sheet_json)
             except OSError as e:
-                print(f"Error deleting JSON file {fn_income}_{process_id}.json: {e}")
+                print(f"Error deleting JSON file {income_sheet_json}: {e}")
         process_id += 1
 
     process_id = 0
-    while os.path.isfile(f"{fn_cap}_{process_id}.json"):
-        with open(f'{fn_cap}_{process_id}.json') as json_file:
+    cap_sheet_json = f"{process_id}_{fn_cap}"
+    while os.path.isfile(cap_sheet_json):
+        with open(cap_sheet_json) as json_file:
             temp_dict = json.load(json_file)
             market_cap.update(temp_dict)
         if remove:
             try:
-                os.remove(f"{fn_cap}_{process_id}.json")
+                os.remove(cap_sheet_json)
             except OSError as e:
-                print(f"Error deleting JSON file {fn_cap}_{process_id}.json: {e}")
+                print(f"Error deleting JSON file {cap_sheet_json}: {e}")
         process_id += 1
 
 
@@ -513,7 +521,7 @@ def scrape_sector_all(tickers, batch_sz=0):
                 join_count += 1
 
     sect_lock.acquire()
-    json.dump(sector_dict, open('sector_info.json', 'w'))
+    json.dump(sector_dict, open(DATA_DIR / fn_sector, 'w'))
     sect_lock.release()
 
 
@@ -538,29 +546,29 @@ if __name__ == '__main__':
     # Refresh the ticker list based on the nasdaqlisted.txt and otherlisted.txt files in the directory
     if args.refresh_tickers:
         print("Stripping text files to get list of stocks...")
-        fhr = open('nasdaqlisted.txt', 'r')
+        fhr = open(DATA_DIR / fn_nasdaq, 'r')
         lines = fhr.readlines()
         ticker_list = []
         for line in lines:
             fields = line.split('|')
             ticker_list.append(fields[0])
         fhr.close()
-        fhr = open('otherlisted.txt', 'r')
+        fhr = open(fn_other, 'r')
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
             ticker_list.append(fields[0])
-        json.dump(ticker_list, open("ticker_list.json", "w"))
+        json.dump(ticker_list, open(DATA_DIR / fn_ticker, "w"))
     else:
         print("Loading ticker list...")
-        with open('ticker_list.json') as json_list:
+        with open(DATA_DIR / fn_ticker) as json_list:
             ticker_list = json.load(json_list)
 
     # ticker_list = ticker_list[0:20]   # For debugging purposes, when we want a smaller ticker_list to work with
 
     # Refresh market cap info without retrieving all the other info about the stocks
     if not args.refresh and args.refresh_market_caps:
-        with open('market_cap_info.json') as json_list:
+        with open(DATA_DIR / fn_cap) as json_list:
             market_cap = json_list
         cap_keys = market_cap.keys()
         print(f"Keys in market_cap dictionary: {cap_keys}")
@@ -568,7 +576,7 @@ if __name__ == '__main__':
 
         print("Retrieving market cap information from Yahoo Finance...")
         market_cap = yahoo_financials.get_market_cap()
-        json.dump(market_cap, open('market_cap_info.json', 'w'))
+        json.dump(market_cap, open(DATA_DIR / fn_cap, 'w'))
 
     # Retrieve the ticker information (balance sheets, income statements, and market caps), scrape the data in
     # batches, and save in batches.
@@ -584,13 +592,13 @@ if __name__ == '__main__':
     else:
         print("Loading all stock data from json files...")
         print("Loading annual balance sheets from json file...")
-        with open(fn_balance + '.json') as json_file:
+        with open(DATA_DIR / fn_balance) as json_file:
             balance_sheet = json.load(json_file)
         print("Loading annual income statement history from json file...")
-        with open(fn_income + '.json') as json_file:
+        with open(DATA_DIR / fn_income) as json_file:
             income_statement = json.load(json_file)
         print("Loading market cap information from json file...")
-        with open(fn_cap + '.json') as json_file:
+        with open(DATA_DIR / fn_cap) as json_file:
             market_cap = json.load(json_file)
 
     # Retrieves the data for tickers that have not been retrieved yet (i.e. not in the dictionary yet)
@@ -672,12 +680,12 @@ if __name__ == '__main__':
         scrape_sector_all(ticker_list, batch_sz=args.retrieve_sector)
     else:
         print("Loading sector, industry, and country info from JSON file...")
-        with open('sector_info.json') as json_file:
+        with open(DATA_DIR / fn_sector) as json_file:
             sector_dict = json.load(json_file)
 
     update_db(balance_sheet.keys())
 
-    rank_stocks('stock_info.db')
+    rank_stocks(fn_stock)
     #ticker_list = filter_tickers(50000000)
     end = time.time()
 
