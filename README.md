@@ -39,3 +39,4 @@ Some things I'm working on:
 
 * Making the code more modular, so that the functions can run on their own without breaking. This is pretty low priority, though.
 * Increasing speed of data fetching
+* Updating Market Caps using Threading
