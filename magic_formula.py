@@ -356,7 +356,8 @@ def clean_tickers():
     for ticker in ticker_list:
         # if get_net_working_capital(ticker) < 0 or get_fixed_assets(ticker) < 0:
         #     none_tickers.add(ticker)
-        if balance_sheet[ticker] is None or income_statement[ticker] is None or market_cap[ticker] is None\
+        if ticker not in balance_sheet or ticker not in income_statement or ticker not in market_cap\
+                or balance_sheet[ticker] is None or income_statement[ticker] is None or market_cap[ticker] is None\
                 or balance_sheet[ticker] == [] or income_statement[ticker] == [] or market_cap[ticker] == []:
             none_tickers.add(ticker)
 
@@ -382,9 +383,9 @@ def create_process(batch_sz, p_tickers, p_id):
     balance_sheet = {}
     income_statement = {}
     market_cap = {}
-    fn_balance = 'annual_balance_sheet'
-    fn_income = 'annual_income_statement'
-    fn_cap = 'market_cap_info'
+    # fn_balance = 'annual_balance_sheet'
+    # fn_income = 'annual_income_statement'
+    # fn_cap = 'market_cap_info'
     retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet)
     retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", income_statement)
     retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap)
@@ -561,14 +562,13 @@ if __name__ == '__main__':
     # Refresh market cap info without retrieving all the other info about the stocks
     if not args.refresh and args.refresh_market_caps:
         with open('market_cap_info.json') as json_list:
-            market_cap = json_list
+            market_cap = json.load(json_list)
         cap_keys = market_cap.keys()
         print(f"Keys in market_cap dictionary: {cap_keys}")
-        yahoo_financials = YahooFinancials(cap_keys)
-
         print("Retrieving market cap information from Yahoo Finance...")
-        market_cap = yahoo_financials.get_market_cap()
-        json.dump(market_cap, open('market_cap_info.json', 'w'))
+        retrieve_data(batch_size, list(cap_keys), "cap", fn_cap, market_cap)
+
+        json.dump(market_cap, open(fn_cap + '.json', 'w'))
 
     # Retrieve the ticker information (balance sheets, income statements, and market caps), scrape the data in
     # batches, and save in batches.
