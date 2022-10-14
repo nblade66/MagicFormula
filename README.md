@@ -9,6 +9,8 @@ Lists of stocks were found on http://ftp.nasdaqtrader.com/, in Symbol Directory.
 It then calculates Return on Capital and Earnings Yield, as specified by Joel Greenblatt. Some of the exact metrics he used were not available on Yahoo Finance, so I had to do some Googling to figure out what the equivalent metrics were (for example, I found that Short Term Debt is also known as Current Liabilities). He also does not reveal some of his exact calculation methods, such as for Net Working Capital, so I did my best based on this [site](https://www.businessinsider.com/magic-formula-investing-amp-the-little-book-that-beats-the-markets-greenblatts-roc-amp-earnings-yield-approach-2011-4). If things are wrong, let me know.
 Stocks below a certain market cap are then filtered out (as he suggests to do), and ranked based on Return on Capital and Earnings Yield.
 
+Balance Sheet metrics use the most recent Quarter's values. Income statement metrics use the TTM, based on Quarterly data.
+
 ## Getting started
 
 Here is how to download the source code, install all dependencies, and run the program:
@@ -40,3 +42,4 @@ Some things I'm working on:
 * Making the code more modular, so that the functions can run on their own without breaking. This is pretty low priority, though.
 * Increasing speed of data fetching
 * Updating Market Caps using Threading
+* Remove stock tickers with missing information. Currently missing information is set to 0, which could have issues when it comes to things like debt.

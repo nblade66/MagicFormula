@@ -12,13 +12,16 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-fn_balance = 'annual_balance_sheet'
-fn_income = 'annual_income_statement'
+fn_balance = 'quarterly_balance_sheet'
+fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
 batch_size = 20
 max_threads = 10        # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
 dict_lock = threading.Lock()
 sect_lock = threading.Lock()
+
+debug = False
+verbose = False  # This can be set in the command line
 
 
 def get_roc(ticker):
@@ -140,7 +143,19 @@ def get_cash(ticker):
 
 
 def get_ebit(ticker):
-    return list(income_statement[ticker][0].values())[0]['ebit']
+    ttm_ebit = sum([list(i.values())[0]['ebit'] for i in income_statement[ticker]])
+    if verbose:
+        print()
+        print(f"------{ticker}--------")
+        ebit_sum = 0
+        for element in income_statement[ticker]:
+            for verbose_date, value in element.items():
+                print(f"{verbose_date}: {value['ebit']}")
+                ebit_sum += value['ebit']
+        print(f"Debug Total ebit: {ebit_sum}")
+        print(f"Returned Total ebit: {ttm_ebit}")
+    return ttm_ebit
+    # return list(income_statement[ticker][0].values())[0]['ebit']
 
 
 def get_market_cap(ticker):
@@ -298,12 +313,12 @@ def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
     yahoo_financials = YahooFinancials(tickers)
 
     if metric == "balance":
-        print(f"Retrieving annual balance sheets from Yahoo Finance...")
-        financial_statement = yahoo_financials.get_financial_stmts('annual', 'balance')['balanceSheetHistory']
+        print(f"Retrieving quarterly balance sheets from Yahoo Finance...")
+        financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'balance')['balanceSheetHistoryQuarterly']
 
     elif metric == "income":
-        print(f"Retrieving annual income statement history from Yahoo Finance...")
-        financial_statement = yahoo_financials.get_financial_stmts('annual', 'income')['incomeStatementHistory']
+        print(f"Retrieving quarterly income statement history from Yahoo Finance...")
+        financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'income')['incomeStatementHistoryQuarterly']
 
     elif metric == "cap":
         print(f"Retrieving market cap information from Yahoo Finance...")
@@ -370,9 +385,9 @@ def clean_tickers():
         temp_cap[ticker] = market_cap[ticker]
 
     balance_sheet = temp_balance
-    json.dump(balance_sheet, open('annual_balance_sheet.json', 'w'))
+    json.dump(balance_sheet, open('quarterly_balance_sheet.json', 'w'))
     income_statement = temp_income
-    json.dump(income_statement, open('annual_income_statement.json', 'w'))
+    json.dump(income_statement, open('quarterly_income_statement.json', 'w'))
     market_cap = temp_cap
     json.dump(market_cap, open('market_cap_info.json', 'w'))
 
@@ -383,9 +398,6 @@ def create_process(batch_sz, p_tickers, p_id):
     balance_sheet = {}
     income_statement = {}
     market_cap = {}
-    # fn_balance = 'annual_balance_sheet'
-    # fn_income = 'annual_income_statement'
-    # fn_cap = 'market_cap_info'
     retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet)
     retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", income_statement)
     retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap)
@@ -532,10 +544,12 @@ if __name__ == '__main__':
                         help='Specify the number of processes to scrape data with')
     parser.add_argument('--sector', '-s', type=int, nargs='?', const=0, default=-1, dest='retrieve_sector',
                         help='Retrieves company sector, industry, and country information')
+    parser.add_argument('--verbose', '-v', action='store_true', dest='verbose',
+                        help='Flag for extra print statements')
     args = parser.parse_args()
+    verbose = args.verbose
 
     start = time.time()
-
     # Refresh the ticker list based on the nasdaqlisted.txt and otherlisted.txt files in the directory
     if args.refresh_tickers:
         print("Stripping text files to get list of stocks...")
@@ -557,7 +571,8 @@ if __name__ == '__main__':
         with open('ticker_list.json') as json_list:
             ticker_list = json.load(json_list)
 
-    # ticker_list = ticker_list[0:20]   # For debugging purposes, when we want a smaller ticker_list to work with
+    if debug:
+        ticker_list = ticker_list[0:20]   # For debugging purposes, when we want a smaller ticker_list to work with
 
     # Refresh market cap info without retrieving all the other info about the stocks
     if not args.refresh and args.refresh_market_caps:
@@ -583,10 +598,10 @@ if __name__ == '__main__':
         clean_tickers()
     else:
         print("Loading all stock data from json files...")
-        print("Loading annual balance sheets from json file...")
+        print("Loading quarterly balance sheets from json file...")
         with open(fn_balance + '.json') as json_file:
             balance_sheet = json.load(json_file)
-        print("Loading annual income statement history from json file...")
+        print("Loading quarterly income statement history from json file...")
         with open(fn_income + '.json') as json_file:
             income_statement = json.load(json_file)
         print("Loading market cap information from json file...")
