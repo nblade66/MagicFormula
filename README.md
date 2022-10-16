@@ -10,6 +10,7 @@ It then calculates Return on Capital and Earnings Yield, as specified by Joel Gr
 Stocks below a certain market cap are then filtered out (as he suggests to do), and ranked based on Return on Capital and Earnings Yield.
 
 Balance Sheet metrics use the most recent Quarter's values. Income statement metrics use the TTM, based on Quarterly data.
+Stocks are also filtered out for Market Cap and Average Dollar Volume (although the calculation is rough, since it only uses the current share price)
 
 ## Getting started
 
@@ -29,9 +30,9 @@ There are six flags to be aware of:
 * `-r`    Retrieves the data (balance_sheet, income_statement, market_cap) of all the stocks listed in the "ticker_list" list. Uses 10 threads. This will take a really long time, since it uses web scraping. As such, I implement retrieval in batches, which are then saved to the JSON file. If no flag, then data will load from the JSON file
 * `-t`    Retrieves the ticker_list using the files "nasdaqlisted.txt" and "otherlisted.txt"; if flag isn't used, ticker_list will load from the JSON file
 * `-c`    Continues retrieving the data of the stocks that aren't in the JSON files, but are in the ticker_list. Generally used if for some reason retrieval was interrupted.
-* `-m`    Updates only the market caps, and as such is faster than using the '-r' flag. This is an option because market caps update far more often than balance sheets or income statements.
 * `-mc`   Allows for multiprocessing (or multi-core) to fetch data from Yahoo Finance web scraping faster. Only applies to continued retrieval. An integer specifies how many processes should be run
 * `-s`    Retrieves the sector info (sector, industry, and country) of all stocks in ticker_list and saves it to the stock_info.json file. Takes a single integer argument that specifies the desired batch size. If no integer is given, a single batch is used
+* `--validate` Validates the tickers based on Market Cap and Average Dollar Volume (and also updates Market Cap Data on valid tickers)
 
 Things to be aware of:
 

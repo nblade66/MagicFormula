@@ -16,9 +16,12 @@ fn_balance = 'quarterly_balance_sheet'
 fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
 batch_size = 20
-max_threads = 10        # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
+max_threads = 5  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
+min_market_cap = 50000000
+min_dollar_volume = 10000000  # based on 10-day and 90-day average volume
 dict_lock = threading.Lock()
 sect_lock = threading.Lock()
+ticker_lock = threading.Lock()
 
 debug = False
 verbose = False  # This can be set in the command line
@@ -268,25 +271,141 @@ def print_db(db_file_name):
         conn.close()
 
 
-# def filter_tickers(cap):
-#     ticker_temp = []
-#     for i, ticker in enumerate(ticker_list):
-#         if get_market_cap(ticker) >= cap:
-#             ticker_temp.append(ticker)
-#     print(f"Length of filtered ticker_list: {len(ticker_temp)}")
-#
-#     return ticker_temp
+# Return new ticker list based on if ticker exceeds a market cap and average dollar volume threshold
+# Does not modify ticker_dict.json because that is a list of POTENTIALLY valid tickers (i.e. it only does not include
+# tickers that are missing financial statements)
+# Also updates the market cap info for valid tickers
+def validate_tickers(tickers, cap_dict, batch_sz=batch_size, newonly=False):
+    if not newonly:
+        # Set all tickers as "not validated"
+        for ticker in tickers:
+            tickers[ticker] = -1
 
-
-def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
+    ticker_keys = list(tickers.keys())
     if batch_sz == 0:
-        batch_sz = len(tickers)
-    batches = len(tickers) // batch_sz
+        batch_sz = len(ticker_keys)
+    batches = len(ticker_keys) // batch_sz
     thread_jobs = []
     print("Creating Threads...")
     for i in range(batches + 1):
-        ticker_sublist = tickers[i * batch_sz: min((i + 1) * batch_sz, len(tickers))]
-        if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
+        ticker_sublist = ticker_keys[i * batch_sz: min((i + 1) * batch_sz, len(ticker_keys))]
+        if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_dict size
+            break
+
+        thread = threading.Thread(target=validate_tickers_thread, args=(ticker_sublist, tickers, cap_dict, i, newonly))
+        thread_jobs.append(thread)
+
+    running = 0
+    next_count = 0
+    join_count = 0
+    while join_count < len(thread_jobs):
+        if running < max_threads and next_count < len(thread_jobs):
+            thread_jobs[next_count].start()
+            time.sleep(3)  # So that requests don't come it TOO fast
+            running += 1
+            next_count += 1
+        elif join_count < next_count:
+            thread_jobs[join_count].join()
+            running -= 1
+            join_count += 1
+
+
+def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
+    # ticker_sublist is only to indicate to YahooFinancials what data is retrieved, and to indicate what tickers should
+    # be validated. The original "tickers" dict is still the one being modified in the end.
+    if newonly:
+        ticker_keys = [ticker for ticker in ticker_keys if tickers[ticker] == -1]
+        if len(ticker_keys) == 0:
+            print(f"All tickers in Batch {batch_no + 1} are validated already.")
+            return
+
+    print(f"Batch {batch_no + 1}: Validating tickers {ticker_keys}")
+
+    start_loop = time.time()
+
+    yh = YahooFinancials(ticker_keys)
+    print(f"Batch {batch_no + 1}: Retrieving volume and price information from Yahoo Finance...")
+    avg_ten_day_volume = yh.get_ten_day_avg_daily_volume()
+    avg_three_month_volume = yh.get_three_month_avg_daily_volume()
+    current_price = yh.get_current_price()
+
+    print(f"Batch {batch_no + 1}: Calculating average dollar volumes...")
+    missing_data = set()
+    avg_ten_day_dollar_volume = {}
+    for ticker, value in avg_ten_day_volume.items():
+        if ticker is None or value is None or ticker not in current_price or current_price[ticker] is None:
+            missing_data.add(ticker)
+        else:
+            avg_ten_day_dollar_volume[ticker] = value * current_price[ticker]
+
+    avg_three_month_dollar_volume = {}
+    for ticker, value in avg_three_month_volume.items():
+        if ticker is None or value is None or ticker not in current_price or current_price[ticker] is None:
+            missing_data.add(ticker)
+        else:
+            avg_three_month_dollar_volume[ticker] = value * current_price[ticker]
+
+    # For the sake of efficiency, don't get market caps of already invalid tickers
+    new_ticker_keys = []
+
+    ticker_lock.acquire()
+    for ticker in ticker_keys:
+        if ticker not in missing_data and avg_ten_day_dollar_volume[ticker] > min_dollar_volume and\
+                                      avg_three_month_dollar_volume[ticker] > min_dollar_volume:
+            new_ticker_keys.append(ticker)
+        else:
+            tickers[ticker] = 0
+    ticker_lock.release()
+
+    if len(new_ticker_keys) == 0:
+        print("No tickers were valid")
+        end_loop = time.time()
+        print(f"Time elapsed for ticker validation, batch {batch_no + 1}: {end_loop - start_loop}")
+        print()
+        return
+
+    yh = YahooFinancials(new_ticker_keys)
+
+    print(f"Batch {batch_no + 1}: Retrieving market cap information from Yahoo Finance...")
+    market_caps = yh.get_market_cap()
+
+    ticker_lock.acquire()
+    for ticker in new_ticker_keys:
+        if ticker in market_cap and market_cap[ticker] is not None and market_caps[ticker] > min_market_cap:
+            tickers[ticker] = 1
+        else:
+            tickers[ticker] = 0
+    ticker_lock.release()
+
+    dict_lock.acquire()
+    cap_dict.update(market_caps)
+    print(f"Saving market cap batch {batch_no + 1} to JSON file...")
+    json.dump(cap_dict, open(fn_cap + '.json', 'w'))
+    dict_lock.release()
+
+    end_loop = time.time()
+    print(f"Time elapsed for ticker validation, batch {batch_no + 1}: {end_loop - start_loop}")
+    print()
+
+
+def is_tickers_validated():
+    return -1 in ticker_dict.values()
+
+
+# Gets a list of tickers that a valid -> There should be no validation/checking of value outside of this function
+def get_valid_ticker_list():
+    return [ticker for ticker, value in ticker_dict.items() if value == 1]
+
+
+def retrieve_data(batch_sz, ticker_keys, metric, file_name, data_dict):
+    if batch_sz == 0:
+        batch_sz = len(ticker_keys)
+    batches = len(ticker_keys) // batch_sz
+    thread_jobs = []
+    print("Creating Threads...")
+    for i in range(batches + 1):
+        ticker_sublist = ticker_keys[i * batch_sz: min((i + 1) * batch_sz, len(ticker_keys))]
+        if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_dict size
             break
 
         thread = threading.Thread(target=create_retrieve_thread, args=(ticker_sublist, metric, file_name, data_dict, i))
@@ -298,7 +417,7 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
     while join_count < len(thread_jobs):
         if running < max_threads and next_count < len(thread_jobs):
             thread_jobs[next_count].start()
-            time.sleep(3)   # So that requests don't come it TOO fast
+            time.sleep(3)  # So that requests don't come it TOO fast
             running += 1
             next_count += 1
         elif join_count < next_count:
@@ -307,22 +426,25 @@ def retrieve_data(batch_sz, tickers, metric, file_name, data_dict):
             join_count += 1
 
 
-def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
+def create_retrieve_thread(ticker_keys, metric, file_name, data_dict, batch_no):
     start_loop = time.time()
-    print(f"Batch/thread {batch_no + 1}: Tickers to be retrieved are: {tickers}")
-    yahoo_financials = YahooFinancials(tickers)
+    print(f"Batch/thread {batch_no + 1}: Tickers to be retrieved are: {ticker_keys}")
+
+    yahoo_financials = YahooFinancials(ticker_keys)
 
     if metric == "balance":
         print(f"Retrieving quarterly balance sheets from Yahoo Finance...")
-        financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'balance')['balanceSheetHistoryQuarterly']
+        financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'balance')[
+            'balanceSheetHistoryQuarterly']
 
     elif metric == "income":
         print(f"Retrieving quarterly income statement history from Yahoo Finance...")
-        financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'income')['incomeStatementHistoryQuarterly']
+        financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'income')[
+            'incomeStatementHistoryQuarterly']
 
-    elif metric == "cap":
-        print(f"Retrieving market cap information from Yahoo Finance...")
-        financial_statement = yahoo_financials.get_market_cap()
+    # elif metric == "cap":
+    #     print(f"Retrieving market cap information from Yahoo Finance...")
+    #     financial_statement = yahoo_financials.get_market_cap()
 
     else:
         print("Metric entered is not recognized.")
@@ -342,12 +464,12 @@ def create_retrieve_thread(tickers, metric, file_name, data_dict, batch_no):
 
 
 # Checks balance_sheet, income_statement, and market_cap dictionaries for None values and empty list values, and removes
-# those entries from the dictionaries and the ticker_list, then updates their respective JSON files.
+# those entries from the dictionaries and the ticker_dict, then updates their respective JSON files.
 # Always called after refreshing data
 def clean_tickers():
     print("Cleaning tickers...")
     none_tickers = set()
-    global balance_sheet, income_statement, market_cap, ticker_list
+    global balance_sheet, income_statement, market_cap, ticker_dict
     temp_balance = {}
     temp_income = {}
     temp_cap = {}
@@ -368,18 +490,18 @@ def clean_tickers():
     #     else:
     #         none_tickers.add(k)
 
-    for ticker in ticker_list:
+    for ticker in ticker_dict:
         # if get_net_working_capital(ticker) < 0 or get_fixed_assets(ticker) < 0:
         #     none_tickers.add(ticker)
-        if ticker not in balance_sheet or ticker not in income_statement or ticker not in market_cap\
-                or balance_sheet[ticker] is None or income_statement[ticker] is None or market_cap[ticker] is None\
+        if ticker not in balance_sheet or ticker not in income_statement or ticker not in market_cap \
+                or balance_sheet[ticker] is None or income_statement[ticker] is None or market_cap[ticker] is None \
                 or balance_sheet[ticker] == [] or income_statement[ticker] == [] or market_cap[ticker] == []:
             none_tickers.add(ticker)
 
-    ticker_list = [i for i in ticker_list if i not in none_tickers]
-    json.dump(ticker_list, open('ticker_list.json', 'w'))
+    ticker_dict = [i for i in ticker_dict if i not in none_tickers]
+    json.dump(ticker_dict, open('ticker_dict.json', 'w'))
 
-    for ticker in ticker_list:
+    for ticker in ticker_dict:
         temp_balance[ticker] = balance_sheet[ticker]
         temp_income[ticker] = income_statement[ticker]
         temp_cap[ticker] = market_cap[ticker]
@@ -400,7 +522,9 @@ def create_process(batch_sz, p_tickers, p_id):
     market_cap = {}
     retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet)
     retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", income_statement)
-    retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap)
+
+    # Commented out because validate_tickers already gets the market cap
+    # retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap)
 
 
 # Takes the various JSON files from processes and updates the dictionaries: balance_sheet, income_statement, market_cap
@@ -460,7 +584,7 @@ def scrape_sector(ticker):
 
         # location = str(location[0]).split('15 -->')[1].split('<!-- /react-text')[0]
 
-        #location = list(filter(lambda a: a != ' ', re.findall(r'[0-9]*(\D*)[0-9]+[http]', location[0].text)))[-1]
+        # location = list(filter(lambda a: a != ' ', re.findall(r'[0-9]*(\D*)[0-9]+[http]', location[0].text)))[-1]
 
         location_text = location[0].text
         sector = results[0].text
@@ -476,9 +600,7 @@ def scrape_sector(ticker):
         sector = 'TBD'
         industry = 'TBD'
 
-
-
-    #location_text = "".join(location_text.split())
+    # location_text = "".join(location_text.split())
     # TODO This doesn't work perfectly. E.g. frickin UK zip codes can have letters, and some companies don't even have
     #   phone numbers or websites, which is what the below REGEX relies on. It's not too important right now, though
     try:
@@ -505,10 +627,10 @@ def scrape_sector_all(tickers, batch_sz=0):
         print("Creating Threads...")
         for i in range(batches + 1):
             ticker_sublist = tickers[i * batch_sz: min((i + 1) * batch_sz, len(tickers))]
-            if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_list size
+            if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_dict size
                 break
 
-            thread = threading.Thread(target=scrape_sector_all, args=(ticker_sublist, ))
+            thread = threading.Thread(target=scrape_sector_all, args=(ticker_sublist,))
             thread_jobs.append(thread)
 
         running = 0
@@ -517,7 +639,7 @@ def scrape_sector_all(tickers, batch_sz=0):
         while join_count < len(thread_jobs):
             if running < max_threads and next_count < len(thread_jobs):
                 thread_jobs[next_count].start()
-                time.sleep(1)   # So that requests don't come it TOO fast
+                time.sleep(1)  # So that requests don't come it TOO fast
                 running += 1
                 next_count += 1
             elif join_count < next_count:
@@ -536,8 +658,6 @@ if __name__ == '__main__':
                         help='flag determines if we refresh the yahoo finance data')
     parser.add_argument('--tickers', '-t', action='store_true', dest='refresh_tickers',
                         help='gets list of stocks from text files')
-    parser.add_argument('--update_market_caps', '-m', action='store_true', dest='refresh_market_caps',
-                        help='refreshes market cap info')
     parser.add_argument('--continue', '-c', action='store_true', dest='continue_refresh',
                         help='Refreshes only tickers not already stored in each JSON file')
     parser.add_argument('--multiprocess', '-mc', type=int, nargs='?', default=1, dest='n_processes',
@@ -546,8 +666,17 @@ if __name__ == '__main__':
                         help='Retrieves company sector, industry, and country information')
     parser.add_argument('--verbose', '-v', action='store_true', dest='verbose',
                         help='Flag for extra print statements')
+    parser.add_argument('--validate', action='store_true', dest='validate',
+                        help='validates tickers and gets market cap data')
     args = parser.parse_args()
     verbose = args.verbose
+
+    balance_sheet = {}
+    income_statement = {}
+    market_cap = {}
+    # Tickers are mapped to validity values, 0=invalid, 1=valid. Above market cap and Avg dollar volume threshold
+    # A value of -1 means it has not been validated yet; if this dict contains a -1, it means its not fully validated
+    ticker_dict = {}
 
     start = time.time()
     # Refresh the ticker list based on the nasdaqlisted.txt and otherlisted.txt files in the directory
@@ -555,46 +684,44 @@ if __name__ == '__main__':
         print("Stripping text files to get list of stocks...")
         fhr = open('nasdaqlisted.txt', 'r')
         lines = fhr.readlines()
-        ticker_list = []
         for line in lines:
             fields = line.split('|')
-            ticker_list.append(fields[0])
+            ticker_dict[fields[0]] = -1
         fhr.close()
         fhr = open('otherlisted.txt', 'r')
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            ticker_list.append(fields[0])
-        json.dump(ticker_list, open("ticker_list.json", "w"))
+            ticker_dict[fields[0]] = -1
+        json.dump(ticker_dict, open("ticker_dict.json", "w"))
     else:
         print("Loading ticker list...")
-        with open('ticker_list.json') as json_list:
-            ticker_list = json.load(json_list)
+        with open('ticker_dict.json') as json_list:
+            ticker_dict = json.load(json_list)
 
     if debug:
-        ticker_list = ticker_list[0:20]   # For debugging purposes, when we want a smaller ticker_list to work with
+        ticker_dict = ticker_dict[0:20]  # For debugging purposes, when we want a smaller ticker_dict to work with
 
-    # Refresh market cap info without retrieving all the other info about the stocks
-    if not args.refresh and args.refresh_market_caps:
-        with open('market_cap_info.json') as json_list:
-            market_cap = json.load(json_list)
-        cap_keys = market_cap.keys()
-        print(f"Keys in market_cap dictionary: {cap_keys}")
-        print("Retrieving market cap information from Yahoo Finance...")
-        retrieve_data(batch_size, list(cap_keys), "cap", fn_cap, market_cap)
-
-        json.dump(market_cap, open(fn_cap + '.json', 'w'))
+    # Validates tickers and gets market cap info
+    if args.validate:
+        print("Validating tickers and getting market caps...")
+        validate_tickers(ticker_dict, market_cap)
 
     # Retrieve the ticker information (balance sheets, income statements, and market caps), scrape the data in
     # batches, and save in batches.
     if args.refresh and not args.continue_refresh:
         print("Refreshing all stock data...")
-        balance_sheet = {}
-        income_statement = {}
-        market_cap = {}
+
+        # check that volume and market cap exceed specific thresholds, and update market cap data
+        if not args.validate:
+            validate_tickers(ticker_dict, market_cap)
+
+        ticker_list = get_valid_ticker_list()
+
         retrieve_data(batch_size, ticker_list, "balance", fn_balance, balance_sheet)
         retrieve_data(batch_size, ticker_list, "income", fn_income, income_statement)
-        retrieve_data(batch_size, ticker_list, "cap", fn_cap, market_cap)
+        # commented out b/c validate_tickers gets market cap
+        # retrieve_data(batch_size, ticker_dict, "cap", fn_cap, market_cap)
         clean_tickers()
     else:
         print("Loading all stock data from json files...")
@@ -612,12 +739,19 @@ if __name__ == '__main__':
     # Note: balance_sheet, income_statement, and market_cap are already loaded in the args.refresh if-else block
     if args.continue_refresh:
         print("Continuing retrieval of stock data that is not already in json files...")
+
+        # check that volume and market cap exceed specific thresholds for non-validated tickers
+        if not args.validate and not is_tickers_validated():
+            validate_tickers(ticker_dict, market_cap, newonly=True)
+
+        ticker_list = get_valid_ticker_list()
+
         # Step 1: Consolidate any JSON sub_files into the dictionaries for the respective metric
         # Iterate through all sub_lists of each process
         print("Consolidating JSON files and removing sub_files...")
         consolidate_json(remove=True)
 
-        # Step 2: Find the tickers in the ticker_list whose data has not been retrieved yet
+        # Step 2: Find the tickers in the ticker_dict whose data has not been retrieved yet
         balance_keys = balance_sheet.keys()
         income_keys = income_statement.keys()
         cap_keys = market_cap.keys()
@@ -638,7 +772,7 @@ if __name__ == '__main__':
             p_size = (len(balance_sublist) // args.n_processes) + 1
         for i in range(args.n_processes):
             # Store the separate lists of tickers for each process into a list
-            p_balance_list.append(balance_sublist[i * p_size: min((i+1) * p_size, len(balance_sublist))])
+            p_balance_list.append(balance_sublist[i * p_size: min((i + 1) * p_size, len(balance_sublist))])
 
         if len(income_sublist) % args.n_processes == 0:
             p_size = len(income_sublist) // args.n_processes
@@ -646,7 +780,7 @@ if __name__ == '__main__':
             # TODO Find better method when # of processes does not divide evenly into # number of tickers
             p_size = (len(income_sublist) // args.n_processes) + 1
         for i in range(args.n_processes):
-            p_income_list.append(income_sublist[i * p_size: min((i+1) * p_size, len(income_sublist))])
+            p_income_list.append(income_sublist[i * p_size: min((i + 1) * p_size, len(income_sublist))])
 
         if len(cap_sublist) % args.n_processes == 0:
             p_size = len(cap_sublist) // args.n_processes
@@ -654,7 +788,7 @@ if __name__ == '__main__':
             # TODO Find better method when # of processes does not divide evenly into # number of tickers
             p_size = (len(cap_sublist) // args.n_processes) + 1
         for i in range(args.n_processes):
-            p_cap_list.append(cap_sublist[i * p_size: min((i+1) * p_size, len(cap_sublist))])
+            p_cap_list.append(cap_sublist[i * p_size: min((i + 1) * p_size, len(cap_sublist))])
 
         # Step 4: Retrieve the data; each list in the process lists gets its own process
         p_ticker_list = list(zip(p_balance_list, p_income_list, p_cap_list))
@@ -684,16 +818,19 @@ if __name__ == '__main__':
         print(f"Retrieving sector, industry, and country info.... Batch Size: {args.retrieve_sector}")
         sector_dict = {}
         # TODO Should I modify this to just use the same "batch_size" variable as when I get financial info?
-        scrape_sector_all(ticker_list, batch_sz=args.retrieve_sector)
+        scrape_sector_all(ticker_dict, batch_sz=args.retrieve_sector)
     else:
         print("Loading sector, industry, and country info from JSON file...")
         with open('sector_info.json') as json_file:
             sector_dict = json.load(json_file)
 
-    update_db(balance_sheet.keys())
+    ticker_list = list()
+    for matched_ticker in get_valid_ticker_list():
+        if matched_ticker in balance_sheet and matched_ticker in income_statement and matched_ticker in market_cap:
+            ticker_list.append(matched_ticker)
+    update_db(ticker_list)
 
     rank_stocks('stock_info.db')
-    #ticker_list = filter_tickers(50000000)
     end = time.time()
 
     print(f"Execution time: {end - start}")
