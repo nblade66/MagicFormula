@@ -464,7 +464,10 @@ def create_retrieve_thread(ticker_keys, metric, file_name, data_dict, batch_no):
 
 
 # Checks balance_sheet, income_statement, and market_cap dictionaries for None values and empty list values, and removes
-# those entries from the dictionaries and the ticker_dict, then updates their respective JSON files.
+# those entries from the dictionaries, then updates their respective JSON files.
+# ticker_dict changes are not saved to the json because info might be missing due to communication errors, and not
+# necessarily because the data is missing (e.g. if we made too many requests to Yahoo Finance and the site refuses.
+# This way, if we continue retrieving, all the tickers will be retrieved, since they are still in the ticker_dict
 # Always called after refreshing data
 def clean_tickers():
     print("Cleaning tickers...")
@@ -498,7 +501,7 @@ def clean_tickers():
                 or balance_sheet[ticker] == [] or income_statement[ticker] == [] or market_cap[ticker] == []:
             none_tickers.add(ticker)
 
-    ticker_dict = [i for i in ticker_dict if i not in none_tickers]
+    ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in none_tickers}
     json.dump(ticker_dict, open('ticker_dict.json', 'w'))
 
     for ticker in ticker_dict:
@@ -824,6 +827,7 @@ if __name__ == '__main__':
         with open('sector_info.json') as json_file:
             sector_dict = json.load(json_file)
 
+    # update db with tickers that have the data for balance sheet, income statement, and market cap
     ticker_list = list()
     for matched_ticker in get_valid_ticker_list():
         if matched_ticker in balance_sheet and matched_ticker in income_statement and matched_ticker in market_cap:
