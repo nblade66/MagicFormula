@@ -15,6 +15,7 @@ import re
 fn_balance = 'quarterly_balance_sheet'
 fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
+fn_tickers = 'ticker_dict'
 batch_size = 2
 max_threads = 7  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
@@ -362,6 +363,7 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
             new_ticker_keys.append(ticker)
         else:
             tickers[ticker] = TICKER_INVALID
+    json.dump(tickers, open(fn_tickers + '.json', 'w'))
     ticker_lock.release()
 
     if len(new_ticker_keys) == 0:
@@ -386,6 +388,7 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
         else:
             print(f"Setting {ticker} to invalid")
             tickers[ticker] = TICKER_INVALID
+    json.dump(tickers, open(fn_tickers + '.json', 'w'))
     ticker_lock.release()
 
     dict_lock.acquire()
@@ -521,7 +524,7 @@ def clean_tickers():
             none_tickers.add(ticker)
 
     ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in none_tickers}
-    json.dump(ticker_dict, open('ticker_dict.json', 'w'))
+    json.dump(ticker_dict, open(fn_tickers + '.json', 'w'))
 
     # Modify dictionaries to only contain tickers that have all the data; save them to json files
     for ticker in get_valid_ticker_list():
