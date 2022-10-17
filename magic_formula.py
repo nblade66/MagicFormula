@@ -15,10 +15,15 @@ import re
 fn_balance = 'quarterly_balance_sheet'
 fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
-batch_size = 20
-max_threads = 5  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed"
+batch_size = 2
+max_threads = 7  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
 min_dollar_volume = 10000000  # based on 10-day and 90-day average volume
+TICKER_VALID = 1
+TICKER_INVALID = 0
+TICKER_NOT_VALIDATED = -1
+TICKER_REMOVE = -2
+
 dict_lock = threading.Lock()
 sect_lock = threading.Lock()
 ticker_lock = threading.Lock()
@@ -279,7 +284,7 @@ def validate_tickers(tickers, cap_dict, batch_sz=batch_size, newonly=False):
     if not newonly:
         # Set all tickers as "not validated"
         for ticker in tickers:
-            tickers[ticker] = -1
+            tickers[ticker] = TICKER_NOT_VALIDATED
 
     ticker_keys = list(tickers.keys())
     if batch_sz == 0:
@@ -314,7 +319,7 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
     # ticker_sublist is only to indicate to YahooFinancials what data is retrieved, and to indicate what tickers should
     # be validated. The original "tickers" dict is still the one being modified in the end.
     if newonly:
-        ticker_keys = [ticker for ticker in ticker_keys if tickers[ticker] == -1]
+        ticker_keys = [ticker for ticker in ticker_keys if tickers[ticker] == TICKER_NOT_VALIDATED]
         if len(ticker_keys) == 0:
             print(f"All tickers in Batch {batch_no + 1} are validated already.")
             return
@@ -350,11 +355,13 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
 
     ticker_lock.acquire()
     for ticker in ticker_keys:
-        if ticker not in missing_data and avg_ten_day_dollar_volume[ticker] > min_dollar_volume and\
-                                      avg_three_month_dollar_volume[ticker] > min_dollar_volume:
+        if ticker in missing_data:
+            tickers[ticker] = TICKER_REMOVE
+        elif avg_ten_day_dollar_volume[ticker] > min_dollar_volume and\
+                avg_three_month_dollar_volume[ticker] > min_dollar_volume:
             new_ticker_keys.append(ticker)
         else:
-            tickers[ticker] = 0
+            tickers[ticker] = TICKER_INVALID
     ticker_lock.release()
 
     if len(new_ticker_keys) == 0:
@@ -371,10 +378,14 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
 
     ticker_lock.acquire()
     for ticker in new_ticker_keys:
-        if ticker in market_cap and market_cap[ticker] is not None and market_caps[ticker] > min_market_cap:
-            tickers[ticker] = 1
+        if ticker not in market_caps or market_caps[ticker] is None:
+            tickers[ticker] = TICKER_REMOVE
+        elif market_caps[ticker] > min_market_cap:
+            print(f"Setting {ticker} to valid")
+            tickers[ticker] = TICKER_VALID
         else:
-            tickers[ticker] = 0
+            print(f"Setting {ticker} to invalid")
+            tickers[ticker] = TICKER_INVALID
     ticker_lock.release()
 
     dict_lock.acquire()
@@ -394,7 +405,9 @@ def is_tickers_validated():
 
 # Gets a list of tickers that a valid -> There should be no validation/checking of value outside of this function
 def get_valid_ticker_list():
-    return [ticker for ticker, value in ticker_dict.items() if value == 1]
+    temp = [ticker for ticker, value in ticker_dict.items() if value == TICKER_VALID]
+    print(f"Getting valid ticker list of {len(temp)} tickers")
+    return temp
 
 
 def retrieve_data(batch_sz, ticker_keys, metric, file_name, data_dict):
@@ -493,18 +506,25 @@ def clean_tickers():
     #     else:
     #         none_tickers.add(k)
 
-    for ticker in ticker_dict:
+    for ticker, value in ticker_dict.items():
         # if get_net_working_capital(ticker) < 0 or get_fixed_assets(ticker) < 0:
         #     none_tickers.add(ticker)
-        if ticker not in balance_sheet or ticker not in income_statement or ticker not in market_cap \
-                or balance_sheet[ticker] is None or income_statement[ticker] is None or market_cap[ticker] is None \
-                or balance_sheet[ticker] == [] or income_statement[ticker] == [] or market_cap[ticker] == []:
+
+        # Logic is: Remove ticker if flagged for removal OR for valid tickers (for which all data should be retrieved),
+        # remove tickers with missing info
+        if value == TICKER_REMOVE or\
+                (value == TICKER_VALID and (ticker not in balance_sheet or ticker not in income_statement
+                                            or ticker not in market_cap or balance_sheet[ticker] is None
+                                            or income_statement[ticker] is None or market_cap[ticker] is None
+                                            or balance_sheet[ticker] == [] or income_statement[ticker] == []
+                                            or market_cap[ticker] == [])):
             none_tickers.add(ticker)
 
     ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in none_tickers}
     json.dump(ticker_dict, open('ticker_dict.json', 'w'))
 
-    for ticker in ticker_dict:
+    # Modify dictionaries to only contain tickers that have all the data; save them to json files
+    for ticker in get_valid_ticker_list():
         temp_balance[ticker] = balance_sheet[ticker]
         temp_income[ticker] = income_statement[ticker]
         temp_cap[ticker] = market_cap[ticker]
@@ -679,6 +699,8 @@ if __name__ == '__main__':
     market_cap = {}
     # Tickers are mapped to validity values, 0=invalid, 1=valid. Above market cap and Avg dollar volume threshold
     # A value of -1 means it has not been validated yet; if this dict contains a -1, it means its not fully validated
+    # A value of -2 means it was flagged for removal (it should be removed, but for some reason wasn't), due to missing
+    # volume, price, or market cap information during the validation process
     ticker_dict = {}
 
     start = time.time()
@@ -689,21 +711,23 @@ if __name__ == '__main__':
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            ticker_dict[fields[0]] = -1
+            ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
         fhr.close()
         fhr = open('otherlisted.txt', 'r')
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            ticker_dict[fields[0]] = -1
+            ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
         json.dump(ticker_dict, open("ticker_dict.json", "w"))
     else:
         print("Loading ticker list...")
         with open('ticker_dict.json') as json_list:
             ticker_dict = json.load(json_list)
 
+    print(f"Number of tickers in ticker_dict: {len(ticker_dict)}")
+
     if debug:
-        ticker_dict = ticker_dict[0:20]  # For debugging purposes, when we want a smaller ticker_dict to work with
+        ticker_dict = {key: ticker_dict[key] for key in list(ticker_dict.keys())[0:20]}  # For debugging purposes, when we want a smaller ticker_dict to work with
 
     # Validates tickers and gets market cap info
     if args.validate:
@@ -832,6 +856,8 @@ if __name__ == '__main__':
     for matched_ticker in get_valid_ticker_list():
         if matched_ticker in balance_sheet and matched_ticker in income_statement and matched_ticker in market_cap:
             ticker_list.append(matched_ticker)
+        else:
+            print(f"Not inserting {matched_ticker} into db: Missing Data")
     update_db(ticker_list)
 
     rank_stocks('stock_info.db')

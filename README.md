@@ -37,7 +37,7 @@ There are six flags to be aware of:
 Things to be aware of:
 
 * The `ticker_list` used to debug can just be any Python list; when actually running the code, make sure to use the `-t` flag to get a refreshed list of tickers.
-* Running on all stocks could take 6+ hours the first time, as it filters through stocks
+* Running on ~10,000 could take 6+ hours the first time, as it filters through stocks
 
 Some things I'm working on:
 
