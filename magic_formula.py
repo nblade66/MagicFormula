@@ -332,7 +332,6 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
     yh = YahooFinancials(ticker_keys)
     print(f"Batch {batch_no + 1}: Retrieving volume and price information from Yahoo Finance...")
     avg_ten_day_volume = yh.get_ten_day_avg_daily_volume()
-    avg_three_month_volume = yh.get_three_month_avg_daily_volume()
     current_price = yh.get_current_price()
 
     print(f"Batch {batch_no + 1}: Calculating average dollar volumes...")
@@ -344,13 +343,6 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
         else:
             avg_ten_day_dollar_volume[ticker] = value * current_price[ticker]
 
-    avg_three_month_dollar_volume = {}
-    for ticker, value in avg_three_month_volume.items():
-        if ticker is None or value is None or ticker not in current_price or current_price[ticker] is None:
-            missing_data.add(ticker)
-        else:
-            avg_three_month_dollar_volume[ticker] = value * current_price[ticker]
-
     # For the sake of efficiency, don't get market caps of already invalid tickers
     new_ticker_keys = []
 
@@ -358,8 +350,7 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
     for ticker in ticker_keys:
         if ticker in missing_data:
             tickers[ticker] = TICKER_REMOVE
-        elif avg_ten_day_dollar_volume[ticker] > min_dollar_volume and\
-                avg_three_month_dollar_volume[ticker] > min_dollar_volume:
+        elif avg_ten_day_dollar_volume[ticker] > min_dollar_volume:
             new_ticker_keys.append(ticker)
         else:
             tickers[ticker] = TICKER_INVALID
