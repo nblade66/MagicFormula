@@ -34,6 +34,11 @@ There are six flags to be aware of:
 * `-s`    Retrieves the sector info (sector, industry, and country) of all stocks in ticker_list and saves it to the stock_info.json file. Takes a single integer argument that specifies the desired batch size. If no integer is given, a single batch is used
 * `--validate` Validates the tickers based on Market Cap and Average Dollar Volume (and also updates Market Cap Data on valid tickers)
 
+On the first time running, usually run `python magicformula.py -t -r` to refresh the ticker list, then retrieve all the data. This will also remove tickers with missing data from the ticker list, and validate tickers (set tickers that don't meet the market cap and dollar average volume criteria to "invalid").
+
+On subsequent runs, `python magicformula.py -r` will retrieve updated values for only valid tickers. This is to speed up retrieval.
+Because it's possible for average dollar cost volumes and market caps to change, use `python magicformula.py --validate -r` to also recheck if tickers are valid (and thus, potentially retrieve data from newly valid tickers)
+
 Things to be aware of:
 
 * The `ticker_list` used to debug can just be any Python list; when actually running the code, make sure to use the `-t` flag to get a refreshed list of tickers.
@@ -44,4 +49,3 @@ Some things I'm working on:
 * Making the code more modular, so that the functions can run on their own without breaking. This is pretty low priority, though.
 * Increasing speed of data fetching
 * Updating Market Caps using Threading
-* Remove stock tickers with missing information. Currently missing information is set to 0, which could have issues when it comes to things like debt.
