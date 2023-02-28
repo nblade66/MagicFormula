@@ -705,13 +705,18 @@ if __name__ == '__main__':
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
+            if "Warrant" not in fields[1] and "Preferred Stock" not in fields[1] and "preferred stock" not in fields[1]\
+                    and "Preferred Share" not in fields[1] and "preferred share" not in fields[1]:
+                ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
         fhr.close()
         fhr = open('otherlisted.txt', 'r')
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
+            if "Warrant" not in fields[1] and "Preferred Stock" not in fields[1] and "preferred stock" not in fields[1] \
+                    and "Preferred Share" not in fields[1] and "preferred share" not in fields[1]:
+                ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
+        fhr.close()
         json.dump(ticker_dict, open("ticker_dict.json", "w"))
     else:
         print("Loading ticker list...")
@@ -734,8 +739,9 @@ if __name__ == '__main__':
         print("Refreshing all stock data...")
 
         # check that volume and market cap exceed specific thresholds, and update market cap data
-        if not args.validate:
-            validate_tickers(ticker_dict, market_cap)
+        # Commented out because I think user should have the option of re-validating or not
+        # if not args.validate:
+        #     validate_tickers(ticker_dict, market_cap)
 
         ticker_list = get_valid_ticker_list()
 
