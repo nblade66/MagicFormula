@@ -16,7 +16,7 @@ fn_balance = 'quarterly_balance_sheet'
 fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
 fn_tickers = 'ticker_dict'
-batch_size = 2
+batch_size = 5
 max_threads = 7  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
 min_dollar_volume = 10000000  # based on 10-day and 90-day average volume
@@ -120,8 +120,11 @@ def get_totalCurrentAssets(ticker):
     try:
         return balance_dict['totalCurrentAssets']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
-        return 0
+        try:
+            return get_totalAssets(ticker) - balance_dict['totalNonCurrentAssets']
+        except Exception as e:
+            print(f"Missing {e} information for {ticker}")
+            return 0
 
 
 def get_longTermDebt(ticker):
@@ -244,7 +247,6 @@ def update_db(tickers):
 #   This could be a good chance to practice BeautifulSoup4 to get sector, industry, and location from Finviz
 # TODO Should I also exclude stocks below a certain volume?
 def rank_stocks(db):
-    # TODO Filter out the stocks below a certain market cap
     print("Ranking stocks based on Magic Formula...")
     conn = sq.connect(rf'{db}')
     cursor = conn.cursor()
@@ -252,7 +254,7 @@ def rank_stocks(db):
     last_year_date = date.today() - timedelta(days=400)
     print(f"Last year's date: {last_year_date.strftime('%Y-%m-%d')}")
 
-    query = cursor.execute(f'''
+    sql_string = f'''
     SELECT * FROM (
         SELECT *, roc_rank + yield_rank AS magic_rank FROM
         (
@@ -261,10 +263,12 @@ def rank_stocks(db):
         )
     ) WHERE most_recent > date('{last_year_date.strftime('%Y-%m-%d')}')
     ORDER BY magic_rank ASC
-    ''')
+    '''
+    query = cursor.execute(sql_string)
 
     cols = [column[0] for column in query.description]
-    pd.DataFrame.from_records(data=query.fetchall(), columns=cols).to_csv('stock_info.csv')
+    df = pd.DataFrame.from_records(data=pd.query.fetchall(), columns=cols)
+    df.to_csv('stock_info.csv')
 
     if conn:
         conn.close()
@@ -292,7 +296,7 @@ def validate_tickers(tickers, cap_dict, batch_sz=batch_size, newonly=False):
         batch_sz = len(ticker_keys)
     batches = len(ticker_keys) // batch_sz
     thread_jobs = []
-    print("Creating Threads...")
+    print("Creating Threads to validate tickers...")
     for i in range(batches + 1):
         ticker_sublist = ticker_keys[i * batch_sz: min((i + 1) * batch_sz, len(ticker_keys))]
         if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_dict size
@@ -322,7 +326,8 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
     if newonly:
         ticker_keys = [ticker for ticker in ticker_keys if tickers[ticker] == TICKER_NOT_VALIDATED]
         if len(ticker_keys) == 0:
-            print(f"All tickers in Batch {batch_no + 1} are validated already.")
+            if verbose:
+                print(f"All tickers in Batch {batch_no + 1} are validated already.")
             return
 
     print(f"Batch {batch_no + 1}: Validating tickers {ticker_keys}")
@@ -330,11 +335,13 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
     start_loop = time.time()
 
     yh = YahooFinancials(ticker_keys)
-    print(f"Batch {batch_no + 1}: Retrieving volume and price information from Yahoo Finance...")
+    if verbose:
+        print(f"Batch {batch_no + 1}: Retrieving volume and price information from Yahoo Finance...")
     avg_ten_day_volume = yh.get_ten_day_avg_daily_volume()
     current_price = yh.get_current_price()
 
-    print(f"Batch {batch_no + 1}: Calculating average dollar volumes...")
+    if verbose:
+        print(f"Batch {batch_no + 1}: Calculating average dollar volumes...")
     missing_data = set()
     avg_ten_day_dollar_volume = {}
     for ticker, value in avg_ten_day_volume.items():
@@ -358,7 +365,8 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
     ticker_lock.release()
 
     if len(new_ticker_keys) == 0:
-        print("No tickers were valid")
+        if verbose:
+            print("No tickers were valid")
         end_loop = time.time()
         print(f"Time elapsed for ticker validation, batch {batch_no + 1}: {end_loop - start_loop}")
         print()
@@ -366,7 +374,8 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
 
     yh = YahooFinancials(new_ticker_keys)
 
-    print(f"Batch {batch_no + 1}: Retrieving market cap information from Yahoo Finance...")
+    if verbose:
+        print(f"Batch {batch_no + 1}: Retrieving market cap information from Yahoo Finance...")
     market_caps = yh.get_market_cap()
 
     ticker_lock.acquire()
@@ -374,17 +383,20 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
         if ticker not in market_caps or market_caps[ticker] is None:
             tickers[ticker] = TICKER_REMOVE
         elif market_caps[ticker] > min_market_cap:
-            print(f"Setting {ticker} to valid")
+            if verbose:
+                print(f"Setting {ticker} to valid")
             tickers[ticker] = TICKER_VALID
         else:
-            print(f"Setting {ticker} to invalid")
+            if verbose:
+                print(f"Setting {ticker} to invalid")
             tickers[ticker] = TICKER_INVALID
     json.dump(tickers, open(fn_tickers + '.json', 'w'))
     ticker_lock.release()
 
     dict_lock.acquire()
     cap_dict.update(market_caps)
-    print(f"Saving market cap batch {batch_no + 1} to JSON file...")
+    if verbose:
+        print(f"Saving market cap batch {batch_no + 1} to JSON file...")
     json.dump(cap_dict, open(fn_cap + '.json', 'w'))
     dict_lock.release()
 
@@ -395,6 +407,11 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
 
 def is_tickers_validated():
     return -1 in ticker_dict.values()
+
+
+def is_common_stock(description):
+    return "Warrant" not in description and "Preferred" not in description and "preferred" not in description and \
+           "Unit" not in description and "ETF" not in description and "Index" not in description
 
 
 # Gets a list of tickers that a valid -> There should be no validation/checking of value outside of this function
@@ -524,9 +541,9 @@ def clean_tickers():
         temp_cap[ticker] = market_cap[ticker]
 
     balance_sheet = temp_balance
-    json.dump(balance_sheet, open('quarterly_balance_sheet.json', 'w'))
+    json.dump(balance_sheet, open(fn_balance + '.json', 'w'))
     income_statement = temp_income
-    json.dump(income_statement, open('quarterly_income_statement.json', 'w'))
+    json.dump(income_statement, open(fn_income + '.json', 'w'))
     market_cap = temp_cap
     json.dump(market_cap, open('market_cap_info.json', 'w'))
 
@@ -685,8 +702,11 @@ if __name__ == '__main__':
                         help='Flag for extra print statements')
     parser.add_argument('--validate', action='store_true', dest='validate',
                         help='validates tickers and gets market cap data')
+    parser.add_argument('--debug', '-d', action='store_true', dest='debug',
+                        help='Reduces size of ticker_dict for debugging purposes')
     args = parser.parse_args()
     verbose = args.verbose
+    debug = args.debug
 
     balance_sheet = {}
     income_statement = {}
@@ -705,16 +725,14 @@ if __name__ == '__main__':
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            if "Warrant" not in fields[1] and "Preferred Stock" not in fields[1] and "preferred stock" not in fields[1]\
-                    and "Preferred Share" not in fields[1] and "preferred share" not in fields[1]:
+            if is_common_stock(fields[1]):
                 ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
         fhr.close()
         fhr = open('otherlisted.txt', 'r')
         lines = fhr.readlines()
         for line in lines:
             fields = line.split('|')
-            if "Warrant" not in fields[1] and "Preferred Stock" not in fields[1] and "preferred stock" not in fields[1] \
-                    and "Preferred Share" not in fields[1] and "preferred share" not in fields[1]:
+            if is_common_stock(fields[1]):
                 ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
         fhr.close()
         json.dump(ticker_dict, open("ticker_dict.json", "w"))
@@ -742,6 +760,8 @@ if __name__ == '__main__':
         # Commented out because I think user should have the option of re-validating or not
         # if not args.validate:
         #     validate_tickers(ticker_dict, market_cap)
+        if not args.validate and not is_tickers_validated():
+            validate_tickers(ticker_dict, market_cap, newonly=True)
 
         ticker_list = get_valid_ticker_list()
 
