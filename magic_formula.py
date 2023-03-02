@@ -11,6 +11,7 @@ from datetime import date, timedelta
 import requests
 from bs4 import BeautifulSoup
 import re
+from functools import cmp_to_key
 
 fn_balance = 'quarterly_balance_sheet'
 fn_income = 'quarterly_income_statement'
@@ -43,7 +44,7 @@ def get_yield(ticker):
 
 def get_ev(ticker):
     total_debt = get_longTermDebt(ticker) + get_totalCurrentLiabilities(ticker)
-    return get_market_cap(ticker) + total_debt - get_cash(ticker)
+    return max(0, get_market_cap(ticker) + total_debt - get_excess_cash(ticker))
 
 
 def get_net_working_capital(ticker):
@@ -53,7 +54,7 @@ def get_net_working_capital(ticker):
 def get_fixed_assets(ticker):
     # return get_netTangibleAssets(ticker) - get_totalCurrentAssets(ticker) + get_totalLiab(ticker)
 
-    return get_totalAssets(ticker) - get_totalCurrentAssets(ticker) - get_intangibles(ticker) - get_goodwill(ticker)
+    return get_totalAssets(ticker) - get_totalCurrentAssets(ticker) - get_intangibles(ticker)
 
 
 def get_excess_cash(ticker):
@@ -62,7 +63,7 @@ def get_excess_cash(ticker):
 
 
 def get_accountsPayable(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['accountsPayable']
     except Exception as e:
@@ -71,16 +72,20 @@ def get_accountsPayable(ticker):
 
 
 def get_intangibles(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['intangibleAssets']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
-        return 0
+        print(f"Missing {e} information for {ticker}, trying different method")
+        try:
+            return get_totalAssets(ticker) - get_netTangibleAssets(ticker) - get_totalLiab(ticker)
+        except Exception as e:
+            print(f"Missing {e} information for {ticker}")
+            return 0
 
 
 def get_goodwill(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['goodWill']
     except Exception as e:
@@ -89,16 +94,20 @@ def get_goodwill(ticker):
 
 
 def get_totalLiab(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['totalLiab']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
-        return 0
+        print(f"missing {e} information for {ticker}, trying different method")
+        try:
+            return balance_dict['totalLiabilitiesNetMinorityInterest']
+        except Exception as e:
+            print(f"missing {e} information for {ticker}")
+            return 0
 
 
 def get_totalAssets(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['totalAssets']
     except Exception as e:
@@ -107,7 +116,7 @@ def get_totalAssets(ticker):
 
 
 def get_netTangibleAssets(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['netTangibleAssets']
     except Exception as e:
@@ -116,10 +125,11 @@ def get_netTangibleAssets(ticker):
 
 
 def get_totalCurrentAssets(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['totalCurrentAssets']
     except Exception as e:
+        print(f"Missing {e} information for {ticker}, trying different method")
         try:
             return get_totalAssets(ticker) - balance_dict['totalNonCurrentAssets']
         except Exception as e:
@@ -128,7 +138,7 @@ def get_totalCurrentAssets(ticker):
 
 
 def get_longTermDebt(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['longTermDebt']
     except Exception as e:
@@ -137,37 +147,57 @@ def get_longTermDebt(ticker):
 
 
 def get_totalCurrentLiabilities(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['totalCurrentLiabilities']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
-        return 0
+        print(f"Missing {e} information for {ticker}, trying different method")
+        try:
+            return balance_dict['currentLiabilities']
+        except Exception as e:
+            print(f"Missing {e} information for {ticker}")
+            return 0
 
 
 def get_cash(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[0]
+    balance_dict = list(balance_sheet[ticker][0].values())[-1]
     try:
         return balance_dict['cash']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
-        return 0
+        print(f"Missing {e} information for {ticker}, trying different method")
+        try:
+            return balance_dict['cashAndCashEquivalents']
+        except Exception as e:
+            print(f"Missing {e} information for {ticker}")
+            return 0
+
+
+def date_compare(date1, date2):
+    if date.fromisoformat(list(date1.keys())[0]) <= date.fromisoformat(list(date2.keys())[0]):
+        return -1
+    else:
+        return 1
 
 
 def get_ebit(ticker):
-    ttm_ebit = sum([list(i.values())[0]['ebit'] for i in income_statement[ticker]])
+    # First sort by date
+    income_list = [i for i in income_statement[ticker]]
+    income_list.sort(key=cmp_to_key(date_compare))
+    # Sum the most recent 4 quarters
+    ttm_ebit = sum([list(i.values())[0]['ebit'] for i in income_list[-4:]])
+
+    # Add them up
     if verbose:
         print()
         print(f"------{ticker}--------")
         ebit_sum = 0
-        for element in income_statement[ticker]:
+        for element in income_list[-4:]:
             for verbose_date, value in element.items():
                 print(f"{verbose_date}: {value['ebit']}")
                 ebit_sum += value['ebit']
         print(f"Debug Total ebit: {ebit_sum}")
         print(f"Returned Total ebit: {ttm_ebit}")
     return ttm_ebit
-    # return list(income_statement[ticker][0].values())[0]['ebit']
 
 
 def get_market_cap(ticker):
@@ -177,14 +207,17 @@ def get_market_cap(ticker):
 # Gets the most recent dates of the balance sheet and income statement, and returns the least recent between the two
 # The point is to check how recent the stock's information is.
 def get_financials_date(ticker):
-    balance_date = list(balance_sheet[ticker][0].keys())[0]
-    balance_date = balance_date.split('-')
-    balance_date = date(int(balance_date[0]), int(balance_date[1]), int(balance_date[2]))
-    # print(f"{balance_date}, Object type: {type(balance_date)}")
-    income_date = list(income_statement[ticker][0].keys())[0]
-    income_date = income_date.split('-')
-    income_date = date(int(income_date[0]), int(income_date[1]), int(income_date[2]))
-    # print(f"{income_date}, Object type: {type(income_date)}")
+    income_list = [i for i in income_statement[ticker]]
+    income_list.sort(key=cmp_to_key(date_compare))
+
+    balance_list = [i for i in balance_sheet[ticker]]
+    balance_list.sort(key=cmp_to_key(date_compare))
+
+    income_date = date.fromisoformat(list(income_list[-1].keys())[0])
+    balance_date = date.fromisoformat(list(balance_list[-1].keys())[0])
+    if verbose:
+        print(f"Most recent income statement: {income_date.isoformat()}")
+        print(f"Most recent balance sheet: {balance_date.isoformat()}")
 
     # Return the less recent date (i.e. smaller date)
     if balance_date > income_date:
@@ -267,7 +300,7 @@ def rank_stocks(db):
     query = cursor.execute(sql_string)
 
     cols = [column[0] for column in query.description]
-    df = pd.DataFrame.from_records(data=pd.query.fetchall(), columns=cols)
+    df = pd.DataFrame.from_records(data=query.fetchall(), columns=cols)
     df.to_csv('stock_info.csv')
 
     if conn:

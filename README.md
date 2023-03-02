@@ -52,6 +52,12 @@ Things to be aware of:
 
 Some things I'm working on:
 
-* Making the code more modular, so that the functions can run on their own without breaking. This is pretty low priority, though.
 * Increasing speed of data fetching
 * Updating Market Caps using Threading
+* Re-testing a good batch size after Yahoo API changes
+* An option to re-retrieve tickers that have missing data to double check if data is actually missing, or if there was an error
+during retrieval
+* Dealing with `WARNING:root:yahoofinancials ticker: <TICKER> error getting income - <class 'yahoofinancials.etl.ManagedException'>`;
+I think this has to do with an empty financial statement; I should check this
+* Currently, balance sheet values are taken from the last index, which is assumed to be the most current quarter.
+Ideally, it instead looks at all the dates on the balance sheet and takes the most recent one.
