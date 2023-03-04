@@ -18,7 +18,7 @@ fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
 fn_tickers = 'ticker_dict'
 batch_size = 5
-max_threads = 7  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
+max_threads = 5  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
 min_dollar_volume = 10000000  # based on 10-day and 90-day average volume
 TICKER_VALID = 1
@@ -439,7 +439,7 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
 
 
 def is_tickers_validated():
-    return -1 in ticker_dict.values()
+    return -1 not in ticker_dict.values()
 
 
 def is_common_stock(description):
