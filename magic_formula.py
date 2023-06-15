@@ -319,12 +319,12 @@ def print_db(db_file_name):
 # tickers that are missing financial statements)
 # Also updates the market cap info for valid tickers
 def validate_tickers(tickers, cap_dict, batch_sz=batch_size, newonly=False):
-    if not newonly:
-        # Set all tickers as "not validated"
-        for ticker in tickers:
-            tickers[ticker] = TICKER_NOT_VALIDATED
-
     ticker_keys = list(tickers.keys())
+
+    if newonly:
+        # We only validate the tickers that are marked as "not validated"
+        ticker_keys = [ticker for ticker in ticker_keys if tickers[ticker] == TICKER_NOT_VALIDATED]
+
     if batch_sz == 0:
         batch_sz = len(ticker_keys)
     batches = len(ticker_keys) // batch_sz
@@ -335,7 +335,7 @@ def validate_tickers(tickers, cap_dict, batch_sz=batch_size, newonly=False):
         if len(ticker_sublist) == 0:  # This is for when the batch_size evenly divides into the ticker_dict size
             break
 
-        thread = threading.Thread(target=validate_tickers_thread, args=(ticker_sublist, tickers, cap_dict, i, newonly))
+        thread = threading.Thread(target=validate_tickers_thread, args=(ticker_sublist, tickers, cap_dict, i))
         thread_jobs.append(thread)
 
     running = 0
@@ -353,16 +353,7 @@ def validate_tickers(tickers, cap_dict, batch_sz=batch_size, newonly=False):
             join_count += 1
 
 
-def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
-    # ticker_sublist is only to indicate to YahooFinancials what data is retrieved, and to indicate what tickers should
-    # be validated. The original "tickers" dict is still the one being modified in the end.
-    if newonly:
-        ticker_keys = [ticker for ticker in ticker_keys if tickers[ticker] == TICKER_NOT_VALIDATED]
-        if len(ticker_keys) == 0:
-            if verbose:
-                print(f"All tickers in Batch {batch_no + 1} are validated already.")
-            return
-
+def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no):
     print(f"Batch {batch_no + 1}: Validating tickers {ticker_keys}")
 
     start_loop = time.time()
@@ -439,7 +430,7 @@ def validate_tickers_thread(ticker_keys, tickers, cap_dict, batch_no, newonly):
 
 
 def is_tickers_validated():
-    return -1 not in ticker_dict.values()
+    return TICKER_NOT_VALIDATED not in ticker_dict.values()
 
 
 def is_common_stock(description):
@@ -578,7 +569,7 @@ def clean_tickers():
     income_statement = temp_income
     json.dump(income_statement, open(fn_income + '.json', 'w'))
     market_cap = temp_cap
-    json.dump(market_cap, open('market_cap_info.json', 'w'))
+    json.dump(market_cap, open(fn_cap + '.json', 'w'))
 
 
 def create_process(batch_sz, p_tickers, p_id):
@@ -768,7 +759,7 @@ if __name__ == '__main__':
             if is_common_stock(fields[1]):
                 ticker_dict[fields[0]] = TICKER_NOT_VALIDATED
         fhr.close()
-        json.dump(ticker_dict, open("ticker_dict.json", "w"))
+        json.dump(ticker_dict, open(fn_tickers + ".json", "w"))
     else:
         print("Loading ticker list...")
         with open('ticker_dict.json') as json_list:
@@ -789,11 +780,8 @@ if __name__ == '__main__':
     if args.refresh and not args.continue_refresh:
         print("Refreshing all stock data...")
 
-        # check that volume and market cap exceed specific thresholds, and update market cap data
-        # Commented out because I think user should have the option of re-validating or not
-        # if not args.validate:
-        #     validate_tickers(ticker_dict, market_cap)
         if not args.validate and not is_tickers_validated():
+            print("Validating new tickers..")
             validate_tickers(ticker_dict, market_cap, newonly=True)
 
         ticker_list = get_valid_ticker_list()
