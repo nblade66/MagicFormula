@@ -578,19 +578,6 @@ def clean_tickers():
 # Implement a MISSING_INFO flag so that script knows when a ticker has already been checked and is actually missing info
 #   * Can I differentiate between different errors, so that I can check if there was a communication error vs actual missing info?
 
-# TODO
-# Insert errors, like missing data, into a database, so that I can check what data is actually missing
-# and see if the error can actually be fixed
-# Other errors include "error getting income - <class 'yahoofinancials.etl.ManagedException'>"
-
-# TODO
-# Check for any NOT_VALIDATED tickers and re-validate before getting ticker info
-
-# TODO
-# In clean_tickers, instead of removing tickers that are missing financial info from ticker_dict, just mark them as
-# a new flag, like MISSING_INFO. Otherwise, if there was a communication error, they will be removed, which is not
-# desirable.
-
 
 def create_process(batch_sz, p_tickers, p_id):
     # create empty dictionaries for the process, since the process does not have access to the global variables
