@@ -17,6 +17,7 @@ fn_balance = 'quarterly_balance_sheet'
 fn_income = 'quarterly_income_statement'
 fn_cap = 'market_cap_info'
 fn_tickers = 'ticker_dict'
+fn_stock_info_db = 'stock_info.db'
 batch_size = 5
 max_threads = 5  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
@@ -25,6 +26,7 @@ TICKER_VALID = 1
 TICKER_INVALID = 0
 TICKER_NOT_VALIDATED = -1
 TICKER_REMOVE = -2
+TICKER_MISSING_INFO = -3
 
 dict_lock = threading.Lock()
 sect_lock = threading.Lock()
@@ -67,7 +69,7 @@ def get_accountsPayable(ticker):
     try:
         return balance_dict['accountsPayable']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
+        insert_error(ticker, f"Missing {e} information for {ticker}")
         return 0
 
 
@@ -76,11 +78,11 @@ def get_intangibles(ticker):
     try:
         return balance_dict['intangibleAssets']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}, trying different method")
+        insert_error(ticker, f"Missing {e} information for {ticker}, trying different method")
         try:
             return get_totalAssets(ticker) - get_netTangibleAssets(ticker) - get_totalLiab(ticker)
         except Exception as e:
-            print(f"Missing {e} information for {ticker}")
+            insert_error(ticker, f"Missing {e} information for {ticker}")
             return 0
 
 
@@ -89,7 +91,7 @@ def get_goodwill(ticker):
     try:
         return balance_dict['goodWill']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
+        insert_error(ticker, f"Missing {e} information for {ticker}")
         return 0
 
 
@@ -98,11 +100,11 @@ def get_totalLiab(ticker):
     try:
         return balance_dict['totalLiab']
     except Exception as e:
-        print(f"missing {e} information for {ticker}, trying different method")
+        insert_error(ticker, f"missing {e} information for {ticker}, trying different method")
         try:
             return balance_dict['totalLiabilitiesNetMinorityInterest']
         except Exception as e:
-            print(f"missing {e} information for {ticker}")
+            insert_error(ticker, f"missing {e} information for {ticker}")
             return 0
 
 
@@ -111,7 +113,7 @@ def get_totalAssets(ticker):
     try:
         return balance_dict['totalAssets']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
+        insert_error(ticker, f"Missing {e} information for {ticker}")
         return 0
 
 
@@ -120,7 +122,7 @@ def get_netTangibleAssets(ticker):
     try:
         return balance_dict['netTangibleAssets']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
+        insert_error(ticker, f"Missing {e} information for {ticker}")
         return 0
 
 
@@ -129,11 +131,11 @@ def get_totalCurrentAssets(ticker):
     try:
         return balance_dict['totalCurrentAssets']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}, trying different method")
+        insert_error(ticker, f"Missing {e} information for {ticker}, trying different method")
         try:
             return get_totalAssets(ticker) - balance_dict['totalNonCurrentAssets']
         except Exception as e:
-            print(f"Missing {e} information for {ticker}")
+            insert_error(ticker, f"Missing {e} information for {ticker}")
             return 0
 
 
@@ -142,7 +144,7 @@ def get_longTermDebt(ticker):
     try:
         return balance_dict['longTermDebt']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}")
+        insert_error(ticker, f"Missing {e} information for {ticker}")
         return 0
 
 
@@ -151,11 +153,11 @@ def get_totalCurrentLiabilities(ticker):
     try:
         return balance_dict['totalCurrentLiabilities']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}, trying different method")
+        insert_error(ticker, f"Missing {e} information for {ticker}, trying different method")
         try:
             return balance_dict['currentLiabilities']
         except Exception as e:
-            print(f"Missing {e} information for {ticker}")
+            insert_error(ticker, f"Missing {e} information for {ticker}")
             return 0
 
 
@@ -164,11 +166,11 @@ def get_cash(ticker):
     try:
         return balance_dict['cash']
     except Exception as e:
-        print(f"Missing {e} information for {ticker}, trying different method")
+        insert_error(ticker, f"Missing {e} information for {ticker}, trying different method")
         try:
             return balance_dict['cashAndCashEquivalents']
         except Exception as e:
-            print(f"Missing {e} information for {ticker}")
+            insert_error(ticker, f"Missing {e} information for {ticker}")
             return 0
 
 
@@ -252,7 +254,7 @@ def insert_data(conn, ticker_info):
 # TODO Add columns for sector, country, and industry
 def update_db(tickers):
     print("Updating database...")
-    conn = sq.connect(r'stock_info.db', detect_types=sq.PARSE_DECLTYPES)
+    conn = sq.connect(fn_stock_info_db, detect_types=sq.PARSE_DECLTYPES)
     cursor = conn.cursor()
     cursor.execute("DROP TABLE IF EXISTS stock_info")
     cursor.execute('''CREATE TABLE IF NOT EXISTS stock_info (
@@ -271,9 +273,35 @@ def update_db(tickers):
                     get_sector(ticker), get_industry(ticker), get_country(ticker))
             insert_data(conn, data)
         except Exception as e:
-            print(f"Insert data error for ticker {ticker}: {e}. Going to next ticker.")
+            insert_error(ticker, f"Update DB, data error for ticker {ticker}: {e}. Going to next ticker.")
     if conn:
         conn.close()
+
+
+# TODO Add Error Type (eventually)
+def create_errors_table():
+    """ Create table in db to store errors
+    """
+    print("Creating errors table...")
+    conn = sq.connect(fn_stock_info_db, detect_types=sq.PARSE_DECLTYPES)
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS errors")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS errors (
+    error_id INTEGER PRIMARY KEY,
+    ticker text,
+    error text
+    );''')
+    conn.commit()
+
+
+def insert_error(ticker, error):
+    sql = ''' INSERT INTO errors (ticker, error)
+              VALUES(?,?) '''
+    conn = sq.connect(fn_stock_info_db, detect_types=sq.PARSE_DECLTYPES)
+    cur = conn.cursor()
+    cur.execute(sql, (ticker, error))
+    conn.commit()
+    print(error)
 
 
 # TODO Is there a way to exclude financial industry and utilities from the list? Also, to exclude stuff like ETFs, etc.
@@ -519,7 +547,7 @@ def create_retrieve_thread(ticker_keys, metric, file_name, data_dict, batch_no):
 def clean_tickers():
     global ticker_dict
     print("Cleaning tickers...")
-    none_tickers = set()
+    remove_tickers = set()
     get_valid_ticker_list()     # Here as a test to see when valid tickers go to 0
 
     for ticker, value in ticker_dict.items():
@@ -528,15 +556,20 @@ def clean_tickers():
 
         # Logic is: Remove ticker if flagged for removal OR for valid tickers (for which all data should be retrieved),
         # remove tickers with missing info
-        if value == TICKER_REMOVE or\
-                (value == TICKER_VALID and (ticker not in balance_sheet or ticker not in income_statement
-                                            or ticker not in market_cap or balance_sheet[ticker] is None
-                                            or income_statement[ticker] is None or market_cap[ticker] is None
-                                            or balance_sheet[ticker] == [] or income_statement[ticker] == []
-                                            or market_cap[ticker] == [])):
-            none_tickers.add(ticker)
+        if value == TICKER_REMOVE:
+            remove_tickers.add(ticker)
+        elif value == TICKER_VALID:
+            if ticker not in balance_sheet or balance_sheet[ticker] is None or balance_sheet[ticker] == []:
+                ticker_dict[ticker] = TICKER_MISSING_INFO
+                insert_error(ticker, "Missing balance sheet")
+            if ticker not in income_statement or income_statement[ticker] is None or income_statement[ticker] == []:
+                ticker_dict[ticker] = TICKER_MISSING_INFO
+                insert_error(ticker, "Missing income statement")
+            if ticker not in market_cap or market_cap[ticker] is None or market_cap[ticker] == []:
+                ticker_dict[ticker] = TICKER_MISSING_INFO
+                insert_error(ticker, "Missing market cap")
 
-    clean_ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in none_tickers}
+    clean_ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in remove_tickers}
     json.dump(clean_ticker_dict, open(fn_tickers + '.json', 'w'))
     ticker_dict = clean_ticker_dict
 
@@ -635,23 +668,22 @@ def scrape_sector(ticker):
         sector = results[0].text
         industry = results[1].text
     except IndexError as e:
-        print(f'Ticker: {ticker}, Error in finding profile: {e}. Setting sector, industry, and country as "TBD"')
+        insert_error(ticker, f'Ticker: {ticker}, Error in finding profile: {e}. Setting sector, industry, and country as "TBD"')
         location_text = '1234TBD1234http'
         sector = 'TBD'
         industry = 'TBD'
     except Exception as e:
-        print(f'Ticker: {ticker}, Error in finding profile: {e}. Setting sector, industry, and country as "TBD"')
+        insert_error(ticker, f'Ticker: {ticker}, Error in finding profile: {e}. Setting sector, industry, and country as "TBD"')
         location_text = '1234TBD1234http'
         sector = 'TBD'
         industry = 'TBD'
 
-    # location_text = "".join(location_text.split())
     # TODO This doesn't work perfectly. E.g. frickin UK zip codes can have letters, and some companies don't even have
     #   phone numbers or websites, which is what the below REGEX relies on. It's not too important right now, though
     try:
         country = re.findall(r'[0-9]*(\D*)[0-9 \-]+[http]', location_text)[-1]
     except IndexError as e:
-        print(f'Ticker: {ticker}, Error in finding country: {e}. Setting country as "TBD"')
+        insert_error(ticker, f'Ticker: {ticker}, Error in finding country: {e}. Setting country as "TBD"')
         country = "TBD"
 
     print(f"Sector: {sector}, Industry: {industry}, Country: {country}")
@@ -727,6 +759,7 @@ if __name__ == '__main__':
     # A value of -2 means it was flagged for removal (it should be removed, but for some reason wasn't), due to missing
     # volume, price, or market cap information during the validation process
     ticker_dict = {}
+    create_errors_table()
 
     start = time.time()
     # Refresh the ticker list based on the nasdaqlisted.txt and otherlisted.txt files in the directory
@@ -889,7 +922,7 @@ if __name__ == '__main__':
             print(f"Not inserting {matched_ticker} into db: Missing Data")
     update_db(ticker_list)
 
-    rank_stocks('stock_info.db')
+    rank_stocks(fn_stock_info_db)
     end = time.time()
 
     print(f"Execution time: {end - start}")
