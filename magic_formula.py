@@ -278,7 +278,6 @@ def update_db(tickers):
 
 # TODO Is there a way to exclude financial industry and utilities from the list? Also, to exclude stuff like ETFs, etc.
 #   This could be a good chance to practice BeautifulSoup4 to get sector, industry, and location from Finviz
-# TODO Should I also exclude stocks below a certain volume?
 def rank_stocks(db):
     print("Ranking stocks based on Magic Formula...")
     conn = sq.connect(rf'{db}')
@@ -490,9 +489,9 @@ def create_retrieve_thread(ticker_keys, metric, file_name, data_dict, batch_no):
         financial_statement = yahoo_financials.get_financial_stmts('quarterly', 'income')[
             'incomeStatementHistoryQuarterly']
 
-    # elif metric == "cap":
-    #     print(f"Retrieving market cap information from Yahoo Finance...")
-    #     financial_statement = yahoo_financials.get_market_cap()
+    elif metric == "cap":
+        print(f"Retrieving market cap information from Yahoo Finance...")
+        financial_statement = yahoo_financials.get_market_cap()
 
     else:
         print("Metric entered is not recognized.")
@@ -518,28 +517,10 @@ def create_retrieve_thread(ticker_keys, metric, file_name, data_dict, batch_no):
 # This way, if we continue retrieving, all the tickers will be retrieved, since they are still in the ticker_dict
 # Always called after refreshing data
 def clean_tickers():
+    global ticker_dict
     print("Cleaning tickers...")
     none_tickers = set()
-    global balance_sheet, income_statement, market_cap, ticker_dict
-    temp_balance = {}
-    temp_income = {}
-    temp_cap = {}
-
-    # for k, v in balance_sheet.items():
-    #     if v is not None and v != []:
-    #         temp_balance[k] = v
-    #     else:
-    #         none_tickers.add(k)
-    # for k, v in income_statement.items():
-    #     if v is not None and v != []:
-    #         temp_income[k] = v
-    #     else:
-    #         none_tickers.add(k)
-    # for k, v in market_cap.items():
-    #     if v is not None and v != []:
-    #         temp_cap[k] = v
-    #     else:
-    #         none_tickers.add(k)
+    get_valid_ticker_list()     # Here as a test to see when valid tickers go to 0
 
     for ticker, value in ticker_dict.items():
         # if get_net_working_capital(ticker) < 0 or get_fixed_assets(ticker) < 0:
@@ -555,21 +536,27 @@ def clean_tickers():
                                             or market_cap[ticker] == [])):
             none_tickers.add(ticker)
 
-    ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in none_tickers}
-    json.dump(ticker_dict, open(fn_tickers + '.json', 'w'))
+    clean_ticker_dict = {ticker: value for ticker, value in ticker_dict.items() if ticker not in none_tickers}
+    json.dump(clean_ticker_dict, open(fn_tickers + '.json', 'w'))
+    ticker_dict = clean_ticker_dict
 
-    # Modify dictionaries to only contain tickers that have all the data; save them to json files
-    for ticker in get_valid_ticker_list():
-        temp_balance[ticker] = balance_sheet[ticker]
-        temp_income[ticker] = income_statement[ticker]
-        temp_cap[ticker] = market_cap[ticker]
 
-    balance_sheet = temp_balance
-    json.dump(balance_sheet, open(fn_balance + '.json', 'w'))
-    income_statement = temp_income
-    json.dump(income_statement, open(fn_income + '.json', 'w'))
-    market_cap = temp_cap
-    json.dump(market_cap, open(fn_cap + '.json', 'w'))
+# TODO Instead of calling "continue retrieval", it should automatically retrieve if valid tickers are missing info
+# Implement a MISSING_INFO flag so that script knows when a ticker has already been checked and is actually missing info
+#   * Can I differentiate between different errors, so that I can check if there was a communication error vs actual missing info?
+
+# TODO
+# Insert errors, like missing data, into a database, so that I can check what data is actually missing
+# and see if the error can actually be fixed
+# Other errors include "error getting income - <class 'yahoofinancials.etl.ManagedException'>"
+
+# TODO
+# Check for any NOT_VALIDATED tickers and re-validate before getting ticker info
+
+# TODO
+# In clean_tickers, instead of removing tickers that are missing financial info from ticker_dict, just mark them as
+# a new flag, like MISSING_INFO. Otherwise, if there was a communication error, they will be removed, which is not
+# desirable.
 
 
 def create_process(batch_sz, p_tickers, p_id):
@@ -762,13 +749,13 @@ if __name__ == '__main__':
         json.dump(ticker_dict, open(fn_tickers + ".json", "w"))
     else:
         print("Loading ticker list...")
-        with open('ticker_dict.json') as json_list:
+        with open(fn_tickers + '.json') as json_list:
             ticker_dict = json.load(json_list)
 
     print(f"Number of tickers in ticker_dict: {len(ticker_dict)}")
 
     if debug:
-        ticker_dict = {key: ticker_dict[key] for key in list(ticker_dict.keys())[0:20]}  # For debugging purposes, when we want a smaller ticker_dict to work with
+        ticker_dict = {key: ticker_dict[key] for key in list(ticker_dict.keys())[0:100]}  # For debugging purposes, when we want a smaller ticker_dict to work with
 
     # Validates tickers and gets market cap info
     if args.validate:
@@ -780,7 +767,7 @@ if __name__ == '__main__':
     if args.refresh and not args.continue_refresh:
         print("Refreshing all stock data...")
 
-        if not args.validate and not is_tickers_validated():
+        if not is_tickers_validated():
             print("Validating new tickers..")
             validate_tickers(ticker_dict, market_cap, newonly=True)
 
@@ -788,9 +775,10 @@ if __name__ == '__main__':
 
         retrieve_data(batch_size, ticker_list, "balance", fn_balance, balance_sheet)
         retrieve_data(batch_size, ticker_list, "income", fn_income, income_statement)
-        # commented out b/c validate_tickers gets market cap
-        # retrieve_data(batch_size, ticker_dict, "cap", fn_cap, market_cap)
+        if not args.validate:
+            retrieve_data(batch_size, ticker_list, "cap", fn_cap, market_cap)
         clean_tickers()
+
     else:
         print("Loading all stock data from json files...")
         print("Loading quarterly balance sheets from json file...")
@@ -809,7 +797,7 @@ if __name__ == '__main__':
         print("Continuing retrieval of stock data that is not already in json files...")
 
         # check that volume and market cap exceed specific thresholds for non-validated tickers
-        if not args.validate and not is_tickers_validated():
+        if not is_tickers_validated():
             validate_tickers(ticker_dict, market_cap, newonly=True)
 
         ticker_list = get_valid_ticker_list()
