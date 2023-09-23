@@ -643,7 +643,7 @@ if __name__ == '__main__':
     parser.add_argument('--refresh', '-r', action='store_true', dest='refresh',
                         help='flag determines if we refresh the yahoo finance data')
     parser.add_argument('--tickers', '-t', action='store_true', dest='refresh_tickers',
-                        help='gets list of stocks from text files')
+                        help='gets list of stocks from nasdaq_stocks.csv')
     parser.add_argument('--continue', '-c', action='store_true', dest='continue_refresh',
                         help='Refreshes only tickers not already stored in each JSON file')
     parser.add_argument('--multiprocess', '-mc', type=int, nargs='?', default=1, dest='n_processes',
@@ -678,20 +678,21 @@ if __name__ == '__main__':
             reader = csv.reader(csvfile, delimiter=",")
             next(reader, None)  # skip the header
             for row in reader:
+                if any([not cell for cell in row]):
+                    continue
+                print(row)
                 ticker = row[0]
                 description = row[1]
-                price = float(sub(r'[^\d.]', '', row[2]))   # I use a float here instead of Decimal because for my purposes, precision isn't a big deal
-                market_cap = float(row[5])
                 country = row[6]
-                daily_volume = int(row[8])
                 sector = row[9]
                 industry = row[10]
 
-                if industry == '':
-                    continue
-
                 if not is_common_stock(description):
                     continue
+
+                price = float(sub(r'[^\d.]', '', row[2]))   # I use a float here instead of Decimal because for my purposes, precision isn't a big deal
+                market_cap = float(row[5])
+                daily_volume = int(row[8])
 
                 ticker_dict[ticker] = TICKER_NOT_VALIDATED
                 market_cap_dict[ticker] = market_cap
