@@ -1,3 +1,14 @@
+"""
+Magic Formula Script
+
+Version 1.1
+
+Author: Nathan Hsu
+"""
+
+__version__ = "1.0"
+__author__ = "Nathan Hsu"
+
 from yahoofinancials import YahooFinancials
 import json
 import csv
@@ -21,7 +32,7 @@ fn_tickers = 'ticker_dict'
 fn_price = 'price_dict'
 fn_stock_info_db = 'stock_info.db'
 batch_size = 10
-max_threads = 1  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
+max_threads = 3  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
 min_dollar_volume = 10000000  # based on 10-day and 90-day average volume
 TICKER_VALID = 1
@@ -449,8 +460,8 @@ def is_common_stock(description):
            "Unit".upper() not in description and "ETF" not in description and "Index".upper() not in description
 
 
-# Gets a list of tickers that a valid -> There should be no validation/checking of value outside of this function
 def get_valid_ticker_list():
+    "Gets a list of tickers that a valid -> There should be no validation/checking of value outside of this function"
     temp = [ticker for ticker, value in ticker_dict.items() if value == TICKER_VALID]
     print(f"Getting valid ticker list of {len(temp)} tickers")
     return temp
@@ -566,21 +577,21 @@ def clean_tickers():
 
 
 def create_process(batch_sz, p_tickers, p_id):
-    # create empty dictionaries for the process, since the process does not have access to the global variables
-    # These will be accessed through their saved JSON files.
+    """ Create empty dictionaries for the process, since the process does not have access to the global variables
+        These will be accessed through their saved JSON files.
+    """
     balance_sheet = {}
     income_statement = {}
-    market_cap_dict = {}
     retrieve_data(batch_sz, p_tickers[0], "balance", f"{fn_balance}_{p_id}", balance_sheet)
     retrieve_data(batch_sz, p_tickers[1], "income", f"{fn_income}_{p_id}", income_statement)
 
-    # Commented out because validate_tickers already gets the market cap
-    # retrieve_data(batch_sz, p_tickers[2], "cap", f"{fn_cap}_{p_id}", market_cap_dict)
 
-
-# Takes the various JSON files from processes and updates the dictionaries: balance_sheet, income_statement, market_cap_dict
-# Also removes the JSON files after consolidating
 def consolidate_json(remove=False):
+    """ Takes the various JSON files from processes and updates the dictionaries: balance_sheet, income_statement, market_cap_dict
+        Also removes the JSON files after consolidating
+    :param remove:
+    :return:
+    """
     process_id = 0
     while os.path.isfile(f"{fn_balance}_{process_id}.json"):
         with open(f'{fn_balance}_{process_id}.json') as json_file:

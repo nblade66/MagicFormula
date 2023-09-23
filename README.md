@@ -2,6 +2,13 @@
 
 Any info is up-to-date as of 2023-09-23
 
+Version 1.1
+
+Changes:
+* Reduced stock validation time by >75% by getting more info from `nasdaq_stocks.csv` (see below for URL) instead of
+web scraping
+* Other fixes
+
 A program to implement the Magic Formula from the book "The Little Book that Still Beats the Market" by Joel Greenblatt. The book is pretty short, and it's actually a really fun read, so go check it out if you want the exact details about his "Magic Formula". I know the list of stocks are already available on his website https://magicformulainvesting.com, but the top stocks are listed in alphabetical order. I wanted to know the exact rankings, so here we are.
 
 Stock data is retrieved using the YahooFinancials library (unofficial, so it uses web scraping).
