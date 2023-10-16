@@ -6,7 +6,7 @@ Version 1.1
 Author: Nathan Hsu
 """
 
-__version__ = "1.0"
+__version__ = "1.1"
 __author__ = "Nathan Hsu"
 
 from yahoofinancials import YahooFinancials
@@ -725,6 +725,9 @@ if __name__ == '__main__':
         print("Loading sector, industry, and country info from JSON file...")
         with open('sector_info.json') as json_file:
             sector_dict = json.load(json_file)
+        print("Loading market caps from json file...")
+        with open(fn_cap + '.json') as json_file:
+            market_cap_dict = json.load(json_file)
 
     print(f"Number of tickers in ticker_dict: {len(ticker_dict)}")
 
