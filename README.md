@@ -9,6 +9,12 @@ Changes:
 web scraping
 * Other fixes
 
+WARNING: 
+Lists of stocks were found on https://www.nasdaq.com/market-activity/stocks/screener, clicking "Download CSV", and saving
+that files as `nasdaq_stocks.csv`. This file is NOT automatically updated by this script. This means the following info
+ is not updated automatically: market cap, volume, country, sector, and industry. This won't matter too much in the short
+ term (since they don't change THAT much), but you might want to redownload it every once in a while.
+
 A program to implement the Magic Formula from the book "The Little Book that Still Beats the Market" by Joel Greenblatt. The book is pretty short, and it's actually a really fun read, so go check it out if you want the exact details about his "Magic Formula". I know the list of stocks are already available on his website https://magicformulainvesting.com, but the top stocks are listed in alphabetical order. I wanted to know the exact rankings, so here we are.
 
 Stock data is retrieved using the YahooFinancials library (unofficial, so it uses web scraping).
