@@ -85,3 +85,12 @@ I think this has to do with an empty financial statement; I should check this
 Ideally, it instead looks at all the dates on the balance sheet and takes the most recent one.
 * Changing the "Continued Refresh" option to use threading instead of multiprocessing. There just isn't any need for multiprocessing
 * Updating the nasdaq_stocks.csv file automatically from https://www.nasdaq.com/market-activity/stocks/screener.
+* Adjust Income and balance sheet data for the currency (e.g. TSM is being reported in TWD, when market cap and price info is all in USD).
+I think I can use yh.get_stock_price_data() to get the following arguments:
+  * regularMarketPrice
+  * regularMarketVolume
+  * marketCap
+  * currency <- this is the one to check if it returns the name of the currency
+* I need to check what the above arguments return. It is possible that I could speed up the data retrieval
+process if I just use one yh.get_stock_price_data() call, then use the arguments to get
+whatever data I need from the price_data dict that the function returns.
