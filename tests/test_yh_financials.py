@@ -17,7 +17,7 @@ class TestYHFinancials(unittest.TestCase):
 
             Specific to currency, make sure to include stock tickers that use foreign currencies in their financials.
         """
-        yh = YahooFinancials(['AMZN'])#, 'TSM', 'TSLA', 'MVIS', 'BWMX', 'XPEV'])  # A mix of US and foreign companies
+        yh = YahooFinancials(['TSM'])#, 'TSM', 'TSLA', 'MVIS', 'BWMX', 'XPEV'])  # A mix of US and foreign companies
         print(yh.get_current_price())
         print("Getting stock price data")
         price_data = yh.get_stock_price_data()

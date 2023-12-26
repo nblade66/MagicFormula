@@ -95,4 +95,3 @@ I think I can use yh.get_stock_price_data() to get the following arguments:
 process if I just use one yh.get_stock_price_data() call, then use the arguments to get
 whatever data I need from the price_data dict that the function returns.
 * In the process of considering changing Yahoo Finance libraries from yahoofinancials to yfinance
-  * It appears that currency information is not correct from yfinance. Tickers like TSM and XPEV are showing "USD" as their currency, which is incorrect.

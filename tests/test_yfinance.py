@@ -25,7 +25,7 @@ class TestYFinance(unittest.TestCase):
         amzn_market_cap = amzn.info["marketCap"]
         amzn_ebitda = amzn.info["ebitda"]
         pretty_print(amzn.info)
-        self.assertEqual(amzn.info["currency"], "USD")
+        self.assertEqual(amzn.info["financialCurrency"], "USD")
         self.assertIsNotNone(amzn_avg_volume)
         self.assertIsNotNone(amzn_market_cap)
         self.assertIsNotNone(amzn_ebitda)
@@ -44,7 +44,7 @@ class TestYFinance(unittest.TestCase):
         tsm_market_cap = tsm.info["marketCap"]
         tsm_ebitda = tsm.info["ebitda"]
         pretty_print(tsm.info)
-        self.assertEqual(tsm.info["currency"], "TWD")
+        self.assertEqual(tsm.info["financialCurrency"], "TWD")
         self.assertIsNotNone(tsm_avg_volume)
         self.assertIsNotNone(tsm_market_cap)
         self.assertIsNotNone(tsm_ebitda)
@@ -54,7 +54,7 @@ class TestYFinance(unittest.TestCase):
         xpev_market_cap = xpev.info["marketCap"]
         xpev_ebitda = xpev.info["ebitda"]
         pretty_print(xpev.info)
-        self.assertEqual(xpev.info["currency"], "CNY")
+        self.assertEqual(xpev.info["financialCurrency"], "CNY")
         self.assertIsNotNone(xpev_avg_volume)
         self.assertIsNotNone(xpev_market_cap)
         self.assertIsNotNone(xpev_ebitda)
@@ -65,7 +65,7 @@ class TestYFinance(unittest.TestCase):
         bwmx_market_cap = bwmx.info["marketCap"]
         bwmx_ebitda = bwmx.info["ebitda"]
         pretty_print(bwmx.info)
-        self.assertEqual(bwmx.info["currency"], "MXN")
+        self.assertEqual(bwmx.info["financialCurrency"], "MXN")
         self.assertIsNotNone(bwmx_avg_volume)
         self.assertIsNotNone(bwmx_market_cap)
         self.assertIsNotNone(bwmx_ebitda)
