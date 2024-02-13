@@ -31,6 +31,7 @@ fn_cap = 'market_cap_info'
 fn_tickers = 'ticker_dict'
 fn_price = 'price_dict'
 fn_stock_info_db = 'stock_info.db'
+nasdaq_csv = "nasdaq_stocks.csv"
 batch_size = 10
 max_threads = 3  # Somewhere between 10 and 15 threads with batch_size of 10 seems to be allowed
 min_market_cap = 50000000
@@ -48,6 +49,23 @@ ticker_lock = threading.Lock()
 debug = False
 verbose = False  # This can be set in the command line
 
+"""
+BACK
+    To convert the final Magic Forumla ranks to the proper currency, the following math was used:
+    get_roc: ebit / (net_working_capital + fixed_assets)
+        ebit: sum of last 4 quarters
+        net_working_capital: sum of values - sum of values - accounts_payable
+        fixed_assets: sum of values
+        get_roc = (sum of 4 quarters) / (sum of various values)
+            hmm, currency should should cancel out in this case, so why are TSM values still so high
+            TODO I'm going to try changing the currency of every value in the dicts (temp solution, change back later)
+                * Another potential source of the bug is EBIT values that are incorrect, since that would effect both
+                roc and yield
+                * introducing a fake exchange rate changed nothing
+    
+"""
+
+
 
 def get_roc(ticker):
     return get_ebit(ticker) / (get_net_working_capital(ticker) + get_fixed_assets(ticker))
@@ -63,22 +81,22 @@ def get_ev(ticker):
 
 
 def get_net_working_capital(ticker):
-    return max(0, get_totalCurrentAssets(ticker) - get_excess_cash(ticker) - get_accountsPayable(ticker))
+    return max(0, get_total_current_assets(ticker) - get_excess_cash(ticker) - get_accountsPayable(ticker))
 
 
 def get_fixed_assets(ticker):
-    # return get_netTangibleAssets(ticker) - get_totalCurrentAssets(ticker) + get_totalLiab(ticker)
+    # return get_netTangibleAssets(ticker) - get_total_current_assets(ticker) + get_totalLiab(ticker)
 
-    return get_totalAssets(ticker) - get_totalCurrentAssets(ticker) - get_intangibles(ticker)
+    return get_totalAssets(ticker) - get_total_current_assets(ticker) - get_intangibles(ticker)
 
 
 def get_excess_cash(ticker):
-    return get_cash(ticker) - max(0, get_totalCurrentLiabilities(ticker) - get_totalCurrentAssets(ticker) +
+    return get_cash(ticker) - max(0, get_totalCurrentLiabilities(ticker) - get_total_current_assets(ticker) +
                                   get_cash(ticker))
 
 
 def get_accountsPayable(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['accountsPayable']
     except Exception as e:
@@ -87,7 +105,7 @@ def get_accountsPayable(ticker):
 
 
 def get_intangibles(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['intangibleAssets']
     except Exception as e:
@@ -100,7 +118,7 @@ def get_intangibles(ticker):
 
 
 def get_goodwill(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['goodWill']
     except Exception as e:
@@ -109,7 +127,7 @@ def get_goodwill(ticker):
 
 
 def get_totalLiab(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['totalLiab']
     except Exception as e:
@@ -122,7 +140,7 @@ def get_totalLiab(ticker):
 
 
 def get_totalAssets(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['totalAssets']
     except Exception as e:
@@ -131,7 +149,7 @@ def get_totalAssets(ticker):
 
 
 def get_netTangibleAssets(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['netTangibleAssets']
     except Exception as e:
@@ -139,8 +157,8 @@ def get_netTangibleAssets(ticker):
         return 0
 
 
-def get_totalCurrentAssets(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+def get_total_current_assets(ticker):
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['totalCurrentAssets']
     except Exception as e:
@@ -153,7 +171,7 @@ def get_totalCurrentAssets(ticker):
 
 
 def get_longTermDebt(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['longTermDebt']
     except Exception as e:
@@ -162,7 +180,7 @@ def get_longTermDebt(ticker):
 
 
 def get_totalCurrentLiabilities(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['totalCurrentLiabilities']
     except Exception as e:
@@ -175,7 +193,7 @@ def get_totalCurrentLiabilities(ticker):
 
 
 def get_cash(ticker):
-    balance_dict = list(balance_sheet[ticker][0].values())[-1]
+    balance_dict = _get_most_recent_dict(balance_sheet, ticker)
     try:
         return balance_dict['cash']
     except Exception as e:
@@ -185,6 +203,11 @@ def get_cash(ticker):
         except Exception as e:
             insert_error(ticker, f"Missing {e} information for {ticker}")
             return 0
+
+
+def _get_most_recent_dict(financial_stmt, ticker):
+    """ Takes entire financial statement and gets the most recent dict of values """
+    return list(financial_stmt[ticker][0].values())[-1]
 
 
 def date_compare(date1, date2):
@@ -497,6 +520,8 @@ def retrieve_data(batch_sz, ticker_keys, metric, file_name, data_dict):
 
 
 def create_retrieve_thread(ticker_keys, metric, file_name, data_dict, batch_no):
+    """ Create a thread that retrieves ticker financial info through YahooFinancials.
+        Also, uses yfinance to get the financial currency used """
     start_loop = time.time()
     print(f"Batch/thread {batch_no + 1}: Tickers to be retrieved are: {ticker_keys}")
 
@@ -685,7 +710,7 @@ if __name__ == '__main__':
     if args.refresh_tickers:
         sector_dict = {}
         price_dict = {}
-        with open("nasdaq_stocks.csv", newline="") as csvfile:
+        with open(nasdaq_csv, newline="") as csvfile:
             reader = csv.reader(csvfile, delimiter=",")
             next(reader, None)  # skip the header
             for row in reader:

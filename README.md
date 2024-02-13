@@ -59,6 +59,10 @@ There are six flags to be aware of:
 Anytime you run `python magicformula.py`, a CSV file with magic formula ranks will be generated, regardless of flags.
 Of course, if you run it without retrieving new data, the ranks generated will also be the same.
 
+First thing to do is go to https://www.nasdaq.com/market-activity/stocks/screener, click "Download CSV", and save
+that files as `nasdaq_stocks.csv`. This file contains a list of tickers, as well as the following info
+ is not updated automatically: market cap, volume, country, sector, and industry.
+ 
 On the first time running, usually run `python magicformula.py -t -r` to refresh the ticker list, then retrieve all the data. This will also remove tickers with missing data from the ticker list, and validate tickers (set tickers that don't meet the market cap and dollar average volume criteria to "invalid").
 You should rarely use the `-t` flag after this because it will cause run time to take unnecessarily long.
 
@@ -87,6 +91,7 @@ Ideally, it instead looks at all the dates on the balance sheet and takes the mo
 * Updating the nasdaq_stocks.csv file automatically from https://www.nasdaq.com/market-activity/stocks/screener.
 * Adjust Income and balance sheet data for the currency (e.g. TSM is being reported in TWD, when market cap and price info is all in USD).
 I think I can use yh.get_stock_price_data() to get the following arguments:
+  * THIS CHANGE IS NO LONGER NECESSARY; the bug was not in the currency, but rather in Yahoo Finance's TSM data
   * regularMarketPrice
   * regularMarketVolume
   * marketCap
@@ -94,4 +99,3 @@ I think I can use yh.get_stock_price_data() to get the following arguments:
 * I need to check what the above arguments return. It is possible that I could speed up the data retrieval
 process if I just use one yh.get_stock_price_data() call, then use the arguments to get
 whatever data I need from the price_data dict that the function returns.
-* In the process of considering changing Yahoo Finance libraries from yahoofinancials to yfinance
